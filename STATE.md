@@ -105,3 +105,32 @@ Questions to answer:
    (transitions.json says random pickers — verify no proximity check exists.)
 5. The morph (evolution gag 1288): regular→futuristic transition + sound.
 6. Sound triggers per act (fire crackling on burnt, morph whoosh, etc.).
+
+## Overnight session results (2026-08-23)
+
+Delivered autonomously while user asleep:
+- **RE-ENGINE.md** — decoded act-chaining, the gag glue driver, morph, sounds:
+  - Persistence (bagel-eyes) = hardcoded follow-on sequence (878→912), confirmed
+    at 0x13df3/0x13e53. Not runtime state.
+  - Gags never spawn independent objects (GetObjectReserve only in Play); a gag
+    = ≤4 coordinated compound channels.
+  - No emergent reactivity — all random; interactions only inside gags.
+  - Morph = seq 1232 (regular→futuristic, WAV 22012), 1287 loop, 1302 back.
+  - Sound map: 22001 fire, 22012 morph, 22010 whoosh, 22005 police.
+- **Fill-the-screen** — field = window size, native sprites, rate-limited spawns
+  spread the swarm; live re-fit on resize (no reload; fixes F12).
+- **Music** — rendered both karaoke MIDIs + theme to OGG (fluidsynth); WebAudio
+  playback; karaoke clock synced to audio; Music toggle.
+- **Sound effects** — all 13 WAVs; gag-specific SFX (fire/police/morph/whoosh).
+- **Persistent-transform gags** — bagel-eyes (878→912 persists) and morph
+  (1232→1287→1303) now chain correctly and appear in the live pool.
+- **Catalog** — authoritative renames from the review batch, cloud fix (were all
+  art 463), Transforms group with correct chains, debug loop toggle.
+
+Still open (need user eyes / bigger lifts):
+- Multi-channel family-A gags (leapfrog/donkey-hops 2239, etc.) render single-
+  channel; self-contained ones look fine, others sparse.
+- Food 2969/2974 are static holds (faithful to engine) — user wants jam/buttered
+  variants surfaced (jam = arts 330/331; not used by the free-food picker).
+- Audio playback unvalidated headless (needs real user gesture).
+- Wine side-by-side validation.
