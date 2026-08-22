@@ -1,37 +1,38 @@
 /* Flying Toasters! — web recreation from reverse-engineered data.
  *
- * Data model (see ../BEHAVIOR.md):
- *  - Motion is choreography: compound frames carry absolute draw rects in a
- *    640x480 design space. A sprite has an origin; draw pos = origin + rect.
- *  - Frames with nonzero (dx,dy) are link frames: on entering one, the origin
- *    shifts by -(dx,dy)  (per-cycle drift, e.g. adult flap loop = (-60,+24)).
- *  - On entering a new sequence, origin is aligned so its first rect continues
- *    from the previous frame's rect (MoveIntoNextSequence behavior).
- *  - Logic ticks at 10 Hz (authentic cadence).
+ * Engine model (see ../BEHAVIOR.md + ../RE-NOTES.md):
+ *  - Compound frames carry absolute draw rects in a 640x480 design space;
+ *    a frame's directory (dx,dy) offsets ALL its rects (GetFrameData).
+ *  - Sprite motion: on entering a sequence (incl. loop re-entry), the origin
+ *    shifts so that an art shared between the previous frame and the incoming
+ *    link frame stays fixed on screen (MoveThroughCommonArtFrame). The link
+ *    frame is (label-1) when that frame exists, else the label frame.
+ *    All drift (flap glide, food tumble, cloud crawl) emerges from this.
+ *  - Queued labels are FRAME ids; resolve to the sequence containing them.
+ *  - Logic ticks at 10 Hz.
  */
 'use strict';
 
 const DESIGN_W = 640, DESIGN_H = 480, TICK_MS = 100;
 const ASSETS = '../assets';
 
-// ---------------------------------------------------------------- utilities
-const rand = n => Math.floor(Math.random() * n);      // RandShort(n)
+const rand = n => Math.floor(Math.random() * n);          // RandShort(n)
 const pick = arr => arr[rand(arr.length)];
+const now = () => performance.now();
 
 function loadJSON(url) { return fetch(url).then(r => r.json()); }
-
 function loadImage(url) {
-  return new Promise((res, rej) => {
+  return new Promise(res => {
     const im = new Image();
     im.onload = () => res(im);
-    im.onerror = () => res(null);          // tolerate missing frames
+    im.onerror = () => res(null);
     im.src = url;
   });
 }
 
 // ------------------------------------------------------------- sprite banks
 class ArtIndex {
-  constructor() { this.byId = new Map(); this.misses = new Set(); }
+  constructor() { this.byId = new Map(); }
   async load(bankIds, banksMeta) {
     const jobs = [];
     for (const b of bankIds) {
@@ -39,345 +40,461 @@ class ArtIndex {
       if (!meta) continue;
       for (const fid of Object.keys(meta.frames)) {
         const id = Number(fid);
-        const url = `${ASSETS}/sprites/${b}/f${String(id).padStart(3, '0')}.png`;
-        jobs.push(loadImage(url).then(im => {
-          if (im) this.byId.set(id, im);
-        }));
+        jobs.push(loadImage(
+          `${ASSETS}/sprites/${b}/f${String(id).padStart(3, '0')}.png`
+        ).then(im => { if (im) this.byId.set(id, im); }));
       }
     }
     await Promise.all(jobs);
   }
-  get(id) {
-    const im = this.byId.get(id);
-    if (!im) this.misses.add(id);
-    return im || null;
-  }
+  // compound item art ids are 1-based relative to extractor frame ids
+  get(id) { return this.byId.get(id - 1) || null; }
 }
 
 // --------------------------------------------------------- compound playback
 class Compound {
   constructor(json) {
-    this.frames = json.frames;
-    this.seqs = new Map();
-    for (const s of json.sequences) this.seqs.set(s.label, s.frames);
+    this.frames = json.frames;                 // frameNo -> {rect,dx,dy,items}
+    this.seqOf = new Map();                    // frameNo -> [frameNos]
+    for (const s of json.sequences)
+      for (const f of s.frames) this.seqOf.set(f, s.frames);
   }
   frame(no) { return this.frames[String(no)]; }
 }
 
 class Player {
-  /* Plays one compound sequence chain for one on-screen object. */
   constructor(compound, art) {
     this.c = compound;
     this.art = art;
     this.ox = 0; this.oy = 0;
     this.seq = null; this.idx = 0;
-    this.lastRect = null;
+    this.prevFrame = null;                     // last frame obj drawn
   }
-  enter(label, align = true) {
-    const frames = this.c.seqs.get(label);
-    if (!frames) return false;
-    const first = this.c.frame(frames[0]);
-    if (align && this.lastRect) {
-      // continuity: first rect should continue where we left off
-      this.ox += this.lastRect[0] - first.rect[0];
-      this.oy += this.lastRect[1] - first.rect[1];
-    }
-    this.seq = frames; this.label = label; this.idx = 0;
-    this._applyLink(first);
+  // queued label = frame id; start playing from that frame
+  enter(label) {
+    const seq = this.c.seqOf.get(label);
+    if (!seq) return false;
+    const target = this.c.frame(label);
+    // link frame: label-1 if it exists (sub-sequence), else the label frame
+    const linkNo = this.c.frames[String(label - 1)] ? label - 1 : label;
+    const link = this.c.frame(linkNo);
+    this._alignCommonArt(this.prevFrame, link);
+    this.seq = seq;
+    this.idx = seq.indexOf(label);
+    this.label = label;
+    this.prevFrame = target;
     return true;
   }
-  _applyLink(fr) {
-    if (fr.dx || fr.dy) { this.ox -= fr.dx; this.oy -= fr.dy; }
+  _alignCommonArt(prev, link) {
+    if (!prev || !link) return;
+    for (const a of prev.items) {
+      for (const b of link.items) {
+        if (a.art === b.art) {
+          this.ox += (a.rect[0] + prev.dx) - (b.rect[0] + link.dx);
+          this.oy += (a.rect[1] + prev.dy) - (b.rect[1] + link.dy);
+          return;
+        }
+      }
+    }
+    // no shared art: rects chain absolutely (by design; no shift)
   }
   tick() {
-    // returns 'end' when the sequence finished (caller decides what's next)
+    if (this.idx + 1 >= this.seq.length) return 'end';
     this.idx++;
-    if (this.idx >= this.seq.length) return 'end';
-    this._applyLink(this.c.frame(this.seq[this.idx]));
+    this.prevFrame = this.cur();
     return 'run';
   }
   cur() { return this.c.frame(this.seq[this.idx]); }
+  placeCenter(cx, cy) {
+    const fr = this.cur();
+    const [l, t, r, b] = fr.rect;
+    this.ox = Math.round(cx - (l + r) / 2 - fr.dx);
+    this.oy = Math.round(cy - (t + b) / 2 - fr.dy);
+  }
   draw(ctx, revealSlots = null) {
     const fr = this.cur();
-    this.lastRect = fr.rect;
-    if (!this.lastArt) this.lastArt = new Map();
     for (const it of fr.items) {
       if (revealSlots && it.artch > 1 && !revealSlots.has(it.artch)) continue;
-      let im = this.art.get(it.art);
-      // boundary/gap art ids are invalid in the original engine; hold the
-      // previous pose for that channel instead of blinking
-      if (!im) im = this.lastArt.get(it.artch) || null;
+      const im = this.art.get(it.art) || this._held(it.artch);
       if (!im) continue;
-      this.lastArt.set(it.artch, im);
-      ctx.drawImage(im, this.ox + it.rect[0], this.oy + it.rect[1]);
+      this._hold(it.artch, im);
+      ctx.drawImage(im, this.ox + it.rect[0] + fr.dx,
+                        this.oy + it.rect[1] + fr.dy);
     }
+  }
+  _held(ch) { return this.heldArt ? this.heldArt.get(ch) : null; }
+  _hold(ch, im) {
+    if (!this.heldArt) this.heldArt = new Map();
+    this.heldArt.set(ch, im);
   }
   bounds() {
     const fr = this.cur();
-    return [this.ox + fr.rect[0], this.oy + fr.rect[1],
-            this.ox + fr.rect[2], this.oy + fr.rect[3]];
+    return [this.ox + fr.rect[0] + fr.dx, this.oy + fr.rect[1] + fr.dy,
+            this.ox + fr.rect[2] + fr.dx, this.oy + fr.rect[3] + fr.dy];
+  }
+  offscreen(margin = 35) {
+    const [l, t, r, b] = this.bounds();
+    return r < -margin || l > DESIGN_W + margin ||
+           b < -margin || t > DESIGN_H + margin;
   }
 }
 
 // ------------------------------------------------------------ actor catalog
-// Curated from compound_22000.json (labels chain from rect0=(397,103) for
-// adults; babies have their own cluster). Weights ~= plain flaps dominate.
-const ADULT = {
-  entry: 2,
-  loops: [17, 32, 47, 62, 77, 208, 845, 860, 912],
-  specials: [104, 132, 171, 230, 251, 519, 585, 621, 748, 806, 878,
-             1371, 2173, 2390, 2405, 2747, 2801],
-};
-const BABY = {
-  entry: 982,
-  loops: [987, 996, 1002, 1008, 1013, 1018, 1025, 1032],
-  specials: [1038, 1065, 1106, 1111],
-};
-// Food sequences have link (0,0) — drift is applied by the object (the exact
-// FlyingFood motion is still being reverse-engineered; this approximates the
-// adult glide slope).                                             [APPROX]
-const FOOD_SEQS = [3001, 3001, 3001, 2978, 3023, 2968, 2973, 3038, 1212, 1386];
-const FOOD_DRIFT = { x: -4.5, y: 1.8 };
+// Adult toaster: entry swoop label 3 (seq 2), standard flight 93 (seq 92),
+// flap-loop attitude ladder (adjacent variants; 10% switch per boundary).
+// Full transition graph transcription is in progress; specials disabled until
+// then so acts never splice mid-way.
+const ADULT_LOOPS = [17, 32, 47, 62, 77];
+const BABY_LOOPS = [987, 996, 1002, 1008, 1013, 1018, 1025, 1032];
+
+// RE-NOTES §1: adult food picker RandShort(9) -> queued labels
+const FOOD_ROLLS = [3039, 3024, 3019, 3002, 2997, 2979, 2969, 2974, 2974];
+// baby food RandShort(6)
+const BABYFOOD_ROLLS = [3274, 3279, 3286, 3291, 3296, 3301];
+// RE-NOTES §2: clouds (4 shapes, uniform), baby sky RandShort(10)
+const CLOUD_ROLLS = [3054, 3074, 3094, 3114];
+const BABYSKY_ROLLS = [3199, 3204, 3209, 3214, 3239, 3244, 3249, 3254, 3259, 3264];
+const MOON = 3239, COW = 3244, STARS = 3249;
+
+// RE-NOTES §4: BigGag families B and C (single-channel scenarios).
+// [label, weight, gate] — family A (multi-actor glue) pending transcription.
+const GAG_B = [[2391, 2], [2406, 2], [1213, 1], [1227, 1], [1288, 1], [658, 1],
+               [928, 1], [1361, 1], [1372, 1], [2239, 2], [1387, 1], [2272, 1],
+               [2298, 1], [2349, 1]];
+const GAG_C = [[2421, 4], [2458, 4], [2736, 1], [2910, 1], [1402, 2], [1672, 2],
+               [2080, 2], [679, 2], [1349, 2], [879, 2], [946, 2]];
 
 class Actor {
-  constructor(compound, art, kind) {
-    this.kind = kind;                        // 'toaster' | 'baby' | 'food'
-    this.p = new Player(compound, art);
+  /* kind: toaster | baby | food | babyfood | cloud | babysky | gag | intro */
+  constructor(sv, kind, label) {
+    this.sv = sv;
+    this.kind = kind;
+    this.weight = 1;
+    this.p = new Player(sv.compound, sv.art);
     this.dead = false;
-    const cat = kind === 'baby' ? BABY : ADULT;
-    if (kind === 'food') {
-      this.p.enter(pick(FOOD_SEQS), false);
-    } else {
-      this.p.enter(kind === 'baby' ? cat.entry : cat.entry, false);
+    this.loop = null;
+
+    switch (kind) {
+      case 'toaster': {
+        this.loop = pick(ADULT_LOOPS);
+        this.p.enter(rand(4) === 0 ? 93 : 3);
+        this.enterFromEdge();
+        break;
+      }
+      case 'baby': {
+        this.loop = pick(BABY_LOOPS);
+        this.p.enter(983);
+        this.enterFromEdge();
+        break;
+      }
+      case 'food': case 'babyfood': {
+        this.loop = pick(kind === 'food' ? FOOD_ROLLS : BABYFOOD_ROLLS);
+        this.p.enter(this.loop);
+        this.enterFromEdge();
+        break;
+      }
+      case 'cloud': case 'babysky': {
+        let l = pick(kind === 'cloud' ? CLOUD_ROLLS : BABYSKY_ROLLS);
+        if ((l === MOON || l === COW)) {
+          if (sv.moonActive) l = STARS; else { sv.moonActive = true; this.hasMoon = true; }
+        }
+        this.loop = l;
+        this.p.enter(l);
+        this.enterCloud();
+        break;
+      }
+      case 'gag': {
+        const fam = label;                       // [label, weight] tuple
+        this.loop = null;                        // scenarios run once then disperse
+        this.weight = fam[1];
+        this.p.enter(fam[0]);
+        this.enterFromEdge();
+        this.scenario = fam[0];
+        sv.playSound(22010);
+        break;
+      }
+      case 'intro': {
+        this.p.enter(3133);
+        this.p.placeCenter(DESIGN_W / 2, DESIGN_H / 2);
+        this.chain = [115, 122];
+        break;
+      }
     }
-    this._place();
   }
-  _place() {
-    // enter from a random point along an extended top/right band
-    const fr = this.p.cur();
-    const [l, t, r, b] = fr.rect;
-    const w = r - l, h = b - t;
-    const alongTop = rand(DESIGN_W + DESIGN_H) < DESIGN_W;
-    if (alongTop) {
-      this.p.ox = rand(DESIGN_W + 200) - 100 - l;
-      this.p.oy = -(b + rand(120));
-    } else {
-      this.p.ox = DESIGN_W + rand(160) - l;
-      this.p.oy = rand(DESIGN_H / 2) - t - 100;
-    }
+  // RE-NOTES entry placement: lanes along top (160px) and right (80px) edges
+  enterFromEdge() {
+    const nTop = Math.ceil(DESIGN_W / 160), nRight = Math.ceil(DESIGN_H / 160);
+    const k = rand(nTop + nRight);
+    if (k < nTop) this.p.placeCenter(k * 160 + rand(160) - 40, -80);
+    else this.p.placeCenter(DESIGN_W + 80, (k - nTop) * 80 + rand(80));
+  }
+  enterCloud() {
+    const sy = Math.floor(DESIGN_H / 100), sx = Math.floor(DESIGN_W / 100);
+    const k = rand(sx + sy + 1);
+    if (k < sy) this.p.placeCenter(-50, 100 * k + 50);
+    else this.p.placeCenter(100 * (k - sy) - 50, -50);
   }
   tick() {
-    if (this.kind === 'food') { this.p.ox += FOOD_DRIFT.x; this.p.oy += FOOD_DRIFT.y; }
-    if (this.p.tick() === 'end') this._next();
-    const [l, t, r, b] = this.p.bounds();
-    if (r < -160 || l > DESIGN_W + 260 || t > DESIGN_H + 160 || b < -260) {
-      this.dead = true;
+    if (this.p.tick() !== 'end') return;
+    // sequence boundary
+    if (this.p.offscreen()) { this.die(); return; }
+    if (this.kind === 'intro') {
+      if (this.chain.length) { this.p.enter(this.chain.shift()); return; }
+      this.p.enter(93);
+      return;
     }
+    if (this.kind === 'gag') {
+      // scenario finished: disperse via standard flight until offscreen
+      this.p.enter(93);
+      this.kind = 'gag-out';
+      return;
+    }
+    if (this.kind === 'gag-out') { this.p.enter(93); return; }
+    if (this.kind === 'toaster' || this.kind === 'baby') {
+      const loops = this.kind === 'baby' ? BABY_LOOPS : ADULT_LOOPS;
+      if (rand(10) === 0) {                     // 10% attitude change (adjacent)
+        const i = loops.indexOf(this.loop);
+        this.loop = loops[Math.max(0, Math.min(loops.length - 1,
+                                               i + (rand(2) ? 1 : -1)))];
+      }
+      this.p.enter(this.loop);
+      return;
+    }
+    this.p.enter(this.loop);                     // food/cloud re-queue same
   }
-  _next() {
-    if (this.kind === 'food') { this.p.enter(this.p.label); this.p.idx = 0; return; }
-    const cat = this.kind === 'baby' ? BABY : ADULT;
-    let label = this.p.label;
-    if (cat.loops.includes(label) || label === cat.entry) {
-      if (rand(10) === 0) label = pick(cat.loops);          // 10% heading change
-      else if (rand(24) === 0) label = pick(cat.specials);  // rare special
-      else if (label === cat.entry) label = pick(cat.loops);
-    } else {
-      label = pick(cat.loops);                              // return to ladder
-    }
-    if (!this.p.enter(label)) { this.p.enter(pick(cat.loops)); }
-    this.p.idx = 0;
+  die() {
+    this.dead = true;
+    if (this.hasMoon) this.sv.moonActive = false;
   }
   draw(ctx) { this.p.draw(ctx); }
 }
 
 // ------------------------------------------------------------------ karaoke
 class Karaoke {
-  constructor(compound, art, tables) {
-    this.c = compound; this.art = art; this.tables = tables;
+  constructor(sv) {
+    this.sv = sv;
+    this.c = sv.karCompound;
     this.reset(0);
   }
   reset(song) {
     this.song = song;
-    this.events = this.tables[String(song)].events;
+    this.events = this.sv.karaokeTables[String(song)].events;
     this.i = -1;
-    this.wait = this.events[0] ? this.events[0].ms : 0;
+    this.deadline = this.events[0] ? this.events[0].ms : 0;
+    this.t = 0;
     this.line = 0;
     this.reveal = new Set();
-    this.t = 0;
+    this.bagelX = null;
+    this.bagelTarget = null;
+    this.bagel = new Player(this.sv.compound, this.sv.art);
+    this.bagel.enter(3305);                      // winged bagel flap (seq 3304)
+  }
+  wordCenter(slot) {
+    const fr = this.c.frame(this.line);
+    if (!fr) return null;
+    const it = fr.items.find(i => i.artch === slot);
+    return it ? (it.rect[0] + it.rect[2]) / 2 : null;
   }
   tick(ms) {
     this.t += ms;
-    while (this.t >= this.wait && this.i < this.events.length - 1) {
-      this.t -= this.wait;
+    while (this.t >= this.deadline && this.i < this.events.length - 1) {
       this.i++;
       const e = this.events[this.i];
-      this.wait = e.ms || 0;
-      if (e.ev === 0) { this.line = e.line; this.reveal = new Set(); }
-      else if (e.ev === 1) { this.line = e.line; this.reveal.add(e.word); }
-      else if (e.ev === 4) {
-        // end of line: keep shown for its duration, then clear on next event
-        if (this.i === this.events.length - 1) this.reset(this.song); // loop
+      this.deadline += e.ms || 0;
+      if (e.ev === 0) {
+        this.line = e.line; this.reveal = new Set();
+        this.bagelX = null;
+      } else if (e.ev === 1 || e.ev === 2) {
+        this.line = e.line; this.reveal.add(e.word);
+        const cx = this.wordCenter(e.word);
+        if (cx != null) {
+          if (this.bagelX == null) this.bagelX = cx;
+          this.bagelTarget = { x: cx, t0: this.t, t1: this.t + (e.ms || 1), x0: this.bagelX };
+        }
+      } else if (e.ev === 4) {
+        if (this.i >= this.events.length - 1) this.reset(this.song);
+        else if (this.events[this.i + 1] && this.events[this.i + 1].ev === 4) { /* sentinel next */ }
+        this.lineEndAt = this.deadline;
       }
     }
+    if (this.t >= (this.lineEndAt || Infinity)) { this.line = 0; this.lineEndAt = null; }
+    // bagel interpolation + flap
+    if (this.bagelTarget) {
+      const { x, t0, t1, x0 } = this.bagelTarget;
+      const f = Math.min(1, (this.t - t0) / Math.max(1, t1 - t0));
+      this.bagelX = x0 + (x - x0) * f;
+    }
+    if (this.bagel.tick() === 'end') this.bagel.enter(3305);
   }
   draw(ctx) {
     if (!this.line) return;
-    const frames = this.c.seqs.get(this.line) || [this.line];
-    const fr = this.c.frame(frames[0]);
+    const fr = this.c.frame(this.line);
     if (!fr) return;
     for (const it of fr.items) {
       if (it.artch > 1 && !this.reveal.has(it.artch)) continue;
-      const im = this.art.get(it.art);
+      const im = this.sv.karArt.get(it.art);
       if (im) ctx.drawImage(im, it.rect[0], it.rect[1]);
     }
-  }
-}
-
-// -------------------------------------------------------------------- intro
-// Evolution slideshow — order/timing approximated from bank inspection
-// (22027..22033 stills + caption cards) until the exact FlyingIntro logic
-// lands from disassembly.                                          [APPROX]
-class Intro {
-  constructor(art) {
-    this.art = art;
-    this.stills = [22027, 22028, 22029, 22030, 22031, 22032, 22033];
-    this.i = 0; this.t = 0; this.done = false;
-    this.frameIds = null;
-  }
-  tick(ms, banksMeta) {
-    this.t += ms;
-    if (this.t > 2600) { this.t = 0; this.i++; if (this.i >= this.stills.length) this.done = true; }
-  }
-  draw(ctx, banksMeta) {
-    if (this.done) return;
-    const bank = this.stills[this.i];
-    const meta = banksMeta[bank];
-    if (!meta) return;
-    const fids = Object.keys(meta.frames).map(Number).sort((a, b) => a - b);
-    const phase = Math.floor(this.t / (2600 / fids.length));
-    const fid = fids[Math.min(phase, fids.length - 1)];
-    const im = this.art.get(fid);
-    if (!im) return;
-    ctx.drawImage(im, (DESIGN_W - im.width) / 2, (DESIGN_H - im.height) / 2);
+    if (this.bagelX != null) {
+      const bfr = this.bagel.cur();
+      const w = bfr.rect[2] - bfr.rect[0], h = bfr.rect[3] - bfr.rect[1];
+      this.bagel.ox = Math.round(this.bagelX - w / 2 - bfr.rect[0]);
+      this.bagel.oy = Math.round(fr.rect[1] - 31 - h - bfr.rect[1]);
+      this.bagel.draw(ctx);
+    }
   }
 }
 
 // --------------------------------------------------------------- controller
 class Screensaver {
   constructor(assets) {
-    this.art = assets.art;
-    this.karArt = assets.karArt;
-    this.compound = assets.compound;
-    this.karCompound = assets.karCompound;
-    this.banksMeta = assets.banksMeta;
-    this.karaokeTables = assets.karaoke;
+    Object.assign(this, assets);
     this.actors = [];
     this.settings = { objects: 50, toasters: 0, karaoke: false, sound: false };
     this.songType = 0;
-    this.karaoke = new Karaoke(this.karCompound, this.karArt, this.karaokeTables);
-    this.intro = null;
-    this.sounds = assets.sounds;
+    this.karaoke = new Karaoke(this);
+    this.moonActive = false;
+    this.lastCloud = -1e9; this.lastGag = -1e9;
+    this.lastGagB = -1e9; this.lastGagC = -1e9;
     this.audioCtx = null;
+    this.introRunning = false;
   }
 
   maxObjects() {
-    const density = (DESIGN_W * DESIGN_H) / 480000;         // 0.64
+    const density = (DESIGN_W * DESIGN_H) / 480000;
     let n = density * (this.songType === 1 ? 22 : 30);
     const o = this.settings.objects;
-    if (o >= 75) { /* swarm x1 */ }
+    if (o >= 75) { /* swarm */ }
     else if (o >= 50) n *= 0.5;
     else if (o >= 25) n *= 0.25;
     else n = this.songType === 1 ? 5 : 3;
     return Math.max(1, Math.round(n));
   }
-
+  maxClouds() {
+    const density = (DESIGN_W * DESIGN_H) / 480000;
+    const o = this.settings.objects;
+    if (o < 25) return 0;
+    let n = density * 3;
+    if (o < 50) n *= 0.5;
+    return Math.max(1, Math.round(n));
+  }
   babyMode() {
     if (this.settings.toasters === 1) return true;
     if (this.settings.toasters === 2) return this.songType === 1;
     return false;
   }
+  population() {
+    return this.actors.reduce((s, a) =>
+      s + (a.kind.startsWith('cloud') || a.kind === 'babysky' ? 0 : a.weight), 0);
+  }
 
-  playIntro() { this.intro = new Intro(this.art); }
+  playIntro() {
+    this.actors = [];
+    this.actors.push(new Actor(this, 'intro'));
+    this.introRunning = true;
+  }
+
+  spawnGag() {
+    const t = now();
+    const roll = rand(3);
+    let table = null;
+    if (roll === 0 && t > this.lastGagC + 15000) { table = GAG_C; this.lastGagC = t; }
+    else if (roll <= 1 && t > this.lastGagB + 6000) { table = GAG_B; this.lastGagB = t; }
+    else { table = GAG_B; this.lastGagB = t; }    // family A pending -> B
+    this.actors.push(new Actor(this, 'gag', pick(table)));
+  }
 
   spawn() {
-    const toasters = this.actors.filter(a => a.kind !== 'food').length;
-    const food = this.actors.filter(a => a.kind === 'food').length;
-    const ratio = food > 0 ? toasters / food : 4.0;
+    const baby = this.babyMode();
+    const t = now();
+    const clouds = this.actors.filter(a => a.kind === 'cloud' || a.kind === 'babysky').length;
+    if (clouds < this.maxClouds() && t > this.lastCloud + 5000) {
+      this.lastCloud = t;
+      this.actors.push(new Actor(this, baby ? 'babysky' : 'cloud'));
+      return;
+    }
     const r = rand(5);
-    let kind;
-    if (r === 2) kind = ratio > 2.0 ? 'food' : 'main';
-    else if (r >= 3) kind = ratio > 4.0 ? 'food' : 'main';
-    else kind = 'main';
-    if (kind === 'main') kind = this.babyMode() ? 'baby' : 'toaster';
-    this.actors.push(new Actor(this.compound, this.art, kind));
-    if (this.settings.sound && rand(6) === 0) this.playSound(pick([22000, 22001, 22004]));
+    if (r === 1 && !baby && t > this.lastGag + 2000 &&
+        !this.actors.some(a => a.kind === 'gag')) {
+      this.lastGag = t;
+      this.spawnGag();
+      return;
+    }
+    const toasters = this.actors.filter(a => a.kind === 'toaster' || a.kind === 'baby').length;
+    const food = this.actors.filter(a => a.kind.endsWith('food')).length;
+    const ratio = food > 0 ? toasters / food : 4.0;
+    const wantFood = (r === 2 && ratio > 2.0) || (r >= 3 && ratio > 4.0);
+    const kind = wantFood ? (baby ? 'babyfood' : 'food')
+                          : (baby ? 'baby' : 'toaster');
+    this.actors.push(new Actor(this, kind));
+    if (this.settings.sound && rand(8) === 0) this.playSound(pick([22002, 22003, 22004]));
   }
 
   playSound(id) {
-    const buf = this.sounds[id];
-    if (!buf) return;
+    if (!this.settings.sound || !this.sounds[id]) return;
     if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    this.audioCtx.decodeAudioData(buf.slice(0), decoded => {
-      const src = this.audioCtx.createBufferSource();
-      src.buffer = decoded;
-      src.connect(this.audioCtx.destination);
-      src.start();
+    this.audioCtx.decodeAudioData(this.sounds[id].slice(0), d => {
+      const s = this.audioCtx.createBufferSource();
+      s.buffer = d; s.connect(this.audioCtx.destination); s.start();
     });
   }
 
   tick() {
-    if (this.intro && !this.intro.done) { this.intro.tick(TICK_MS, this.banksMeta); return; }
-    if (this.settings.toasters === 2 && rand(3000) === 0) this.songType = rand(2);
-    else if (this.settings.toasters !== 2) this.songType = this.settings.toasters;
+    if (this.introRunning) {
+      const intro = this.actors[0];
+      intro.tick();
+      if (intro.dead) { this.introRunning = false; this.actors = []; }
+      return;                                    // intro runs exclusively
+    }
+    if (this.settings.toasters !== 2) this.songType = this.settings.toasters;
     for (const a of this.actors) a.tick();
     this.actors = this.actors.filter(a => !a.dead);
-    if (this.actors.length < this.maxObjects()) this.spawn();
+    if (this.population() < this.maxObjects()) this.spawn();
     if (this.settings.karaoke) this.karaoke.tick(TICK_MS);
   }
 
   draw(ctx) {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, DESIGN_W, DESIGN_H);
-    if (this.intro && !this.intro.done) { this.intro.draw(ctx, this.banksMeta); return; }
-    // stable z-order: painter's order by spawn time (original keeps a z list)
-    for (const a of this.actors) a.draw(ctx);
-    if (this.settings.karaoke) this.karaoke.draw(ctx);
+    // clouds/sky behind everything
+    for (const a of this.actors)
+      if (a.kind === 'cloud' || a.kind === 'babysky') a.draw(ctx);
+    for (const a of this.actors)
+      if (!(a.kind === 'cloud' || a.kind === 'babysky')) a.draw(ctx);
+    if (this.settings.karaoke && !this.introRunning) this.karaoke.draw(ctx);
   }
 }
 
 // -------------------------------------------------------------------- boot
 async function boot() {
-  const [banksMeta, comp22000, comp22100, karaoke] = await Promise.all([
+  const [banksMeta, comp22000, comp22100, karaokeTables] = await Promise.all([
     loadJSON(`${ASSETS}/sprites/banks.json`),
     loadJSON(`${ASSETS}/compound_22000.json`),
     loadJSON(`${ASSETS}/compound_22100.json`),
     loadJSON(`${ASSETS}/karaoke.json`),
   ]);
-  const toasterBanks = Object.keys(banksMeta).map(Number).filter(b => b < 22100);
-  const karBanks = Object.keys(banksMeta).map(Number).filter(b => b >= 22100);
-  const art = new ArtIndex();
-  const karArt = new ArtIndex();
-  await Promise.all([art.load(toasterBanks, banksMeta), karArt.load(karBanks, banksMeta)]);
-
-  // sounds (fetched lazily as raw buffers; decoded on demand)
+  const ids = Object.keys(banksMeta).map(Number);
+  const art = new ArtIndex(), karArt = new ArtIndex();
+  await Promise.all([
+    art.load(ids.filter(b => b < 22100), banksMeta),
+    karArt.load(ids.filter(b => b >= 22100), banksMeta),
+  ]);
   const sounds = {};
-  for (const id of [22000, 22001, 22004]) {
-    fetch(`${ASSETS}/sounds/${id}.wav`).then(r => r.arrayBuffer()).then(b => { sounds[id] = b; }).catch(() => {});
+  for (const id of [22002, 22003, 22004, 22010]) {
+    fetch(`${ASSETS}/sounds/${id}.wav`).then(r => r.arrayBuffer())
+      .then(b => { sounds[id] = b; }).catch(() => {});
   }
 
   const saver = new Screensaver({
     art, karArt,
     compound: new Compound(comp22000),
     karCompound: new Compound(comp22100),
-    banksMeta, karaoke, sounds,
+    banksMeta, karaokeTables, sounds,
   });
+  window.saver = saver;                          // debug hook
 
   document.getElementById('loading').classList.add('hidden');
-  window.saver = saver;                      // debug hook
-  window.artDebug = { art, karArt };
 
-  // --- canvas scale
   const canvas = document.getElementById('stage');
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
@@ -390,14 +507,17 @@ async function boot() {
   window.addEventListener('resize', rescale);
   rescale();
 
-  // --- settings panel
   const panel = document.getElementById('panel');
   const togglePanel = () => panel.classList.toggle('hidden');
   window.addEventListener('keydown', e => { if (e.key === 'Escape') togglePanel(); });
   canvas.addEventListener('click', togglePanel);
   document.getElementById('close-btn').onclick = togglePanel;
-  document.getElementById('objects').onchange = e => { saver.settings.objects = Number(e.target.value); };
-  document.getElementById('toasters').onchange = e => { saver.settings.toasters = Number(e.target.value); };
+  document.getElementById('objects').onchange = e => { saver.settings.objects = +e.target.value; };
+  document.getElementById('toasters').onchange = e => {
+    saver.settings.toasters = +e.target.value;
+    if (saver.settings.toasters === 2) saver.songType = rand(2);
+    if (saver.settings.karaoke) saver.karaoke.reset(saver.songType);
+  };
   document.getElementById('karaoke').onchange = e => {
     saver.settings.karaoke = e.target.checked;
     if (e.target.checked) saver.karaoke.reset(saver.songType);
@@ -405,10 +525,11 @@ async function boot() {
   document.getElementById('sound').onchange = e => { saver.settings.sound = e.target.checked; };
   document.getElementById('intro-btn').onclick = () => { saver.playIntro(); togglePanel(); };
 
-  // --- main loop: 10 Hz logic, draw on tick
+  saver.playIntro();                             // authentic: intro on activation
+
   let acc = 0, last = performance.now();
-  function frame(now) {
-    acc += now - last; last = now;
+  function frame(t) {
+    acc += t - last; last = t;
     let stepped = false;
     while (acc >= TICK_MS) { acc -= TICK_MS; saver.tick(); stepped = true; }
     if (stepped) saver.draw(ctx);

@@ -4,7 +4,6 @@ html, body {
   background: #000;
   overflow: hidden;
   font-family: "Segoe UI", system-ui, sans-serif;
-  cursor: none;
 }
 
 #stage-wrap {
