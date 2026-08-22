@@ -163,11 +163,18 @@ const MOON = 3239, COW = 3244, STARS = 3249;
 // 679 police-card) and the 3-frame 1227 need the multi-channel sub-actor driver
 // (family-A glue, not yet wired) and are omitted so nothing flashes-and-vanishes.
 // Police chase survives via self-contained scenario 928. [label, weight]
-const GAG_B = [[2391, 2], [2406, 2], [1213, 1], [1288, 1], [658, 1],
+const GAG_B = [[2391, 2], [2406, 2], [1213, 1], [658, 1],
                [928, 1], [1361, 1], [1372, 1], [2239, 2], [1387, 1], [2272, 1],
-               [2298, 1], [2349, 1]];
+               [2298, 1], [2349, 1],
+               [878, 2],                          // bagel-eyes (persistent)
+               [1232, 1]];                        // evolution morph
 const GAG_C = [[2421, 4], [2736, 1], [2910, 1], [1672, 2],
-               [1349, 2], [879, 2], [946, 2]];
+               [1349, 2], [946, 2]];
+// scenario -> follow-on. persist = loop this label until offscreen.
+const GAG_CHAINS = {
+  878: { chain: [912], persist: 912 },           // bagel act -> bagel-cruise forever
+  1232: { chain: [1287, 1287, 1303], persist: null }, // morph -> futuristic -> back -> 93
+};
 
 
 class ToasterActor {
@@ -409,11 +416,15 @@ class Actor {
         const fam = label;                       // [label, weight] tuple
         this.loop = null;                        // scenarios run once then disperse
         this.weight = fam[1];
+        this.scenario = fam[0];
+        // engine follow-on chains (RE-ENGINE.md): morph forward→futuristic loop
+        // →morph back→plain; bagel-eyes act→bagel-cruise (persists til offscreen)
+        const spec = GAG_CHAINS[fam[0]];
+        this.gagChain = spec ? spec.chain.slice() : null;
+        this.gagPersist = spec ? (spec.persist ?? null) : null;
         this.p.enter(fam[0]);
         this.enterFromEdge();
-        this.scenario = fam[0];
         sv.playSound(22010);                     // gag whoosh (RE-ENGINE.md)
-        // scenario-specific SFX
         if (fam[0] === 928) sv.playSound(22001);            // fire / burning
         else if (fam[0] === 679 || fam[0] === 1349) sv.playSound(22005); // police siren
         else if (fam[0] === 1232 || fam[0] === 1288) sv.playSound(22012); // morph warp
@@ -453,7 +464,16 @@ class Actor {
       return;
     }
     if (this.kind === 'gag') {
-      // scenario finished: disperse via standard flight until offscreen
+      // scenario finished: follow the engine's chain (RE-ENGINE.md), which is
+      // either a persistent transform (bagel-eyes/morph loop) or disperse-to-93
+      if (this.gagChain && this.gagChain.length) {
+        this.p.enter(this.gagChain.shift());
+        return;
+      }
+      if (this.gagPersist != null) {             // loop the transformed cruise
+        this.p.enter(this.gagPersist);
+        return;
+      }
       this.p.enter(93);
       this.kind = 'gag-out';
       return;
