@@ -13,7 +13,13 @@
  */
 'use strict';
 
-const DESIGN_W = 640, DESIGN_H = 480, TICK_MS = 100;
+// Play field fills the window at load (native-size sprites over more sky, like
+// the original on a large monitor). 640x480 is the design space the sequence
+// rects live in; the karaoke banner anchors within a centered 640x480 box.
+let DESIGN_W = 640, DESIGN_H = 480;
+const KAR_W = 640, KAR_H = 480;
+const TICK_MS = 100;
+const SPAWN_MS = 350;                            // min gap between spawns
 const ASSETS = '../assets';
 
 const rand = n => Math.floor(Math.random() * n);          // RandShort(n)
@@ -550,16 +556,18 @@ class Karaoke {
     if (!this.line) return;
     const fr = this.c.frame(this.line);
     if (!fr) return;
+    // anchor the karaoke box: horizontally centered, pinned to the bottom
+    const kx = Math.round((DESIGN_W - KAR_W) / 2), ky = DESIGN_H - KAR_H;
     for (const it of fr.items) {
       if (it.artch > 1 && !this.reveal.has(it.artch)) continue;
       const im = this.sv.karArt.get(it.art);
-      if (im) ctx.drawImage(im, it.rect[0], it.rect[1]);
+      if (im) ctx.drawImage(im, kx + it.rect[0], ky + it.rect[1]);
     }
     if (this.bagelX != null) {
       const bfr = this.bagel.cur();
       const w = bfr.rect[2] - bfr.rect[0], h = bfr.rect[3] - bfr.rect[1];
-      this.bagel.ox = Math.round(this.bagelX - w / 2 - bfr.rect[0]);
-      this.bagel.oy = Math.round(fr.rect[1] - 31 - h - bfr.rect[1]);
+      this.bagel.ox = Math.round(kx + this.bagelX - w / 2 - bfr.rect[0]);
+      this.bagel.oy = Math.round(ky + fr.rect[1] - 31 - h - bfr.rect[1]);
       this.bagel.draw(ctx);
     }
   }
@@ -683,7 +691,13 @@ class Screensaver {
     if (this.settings.toasters !== 2) this.songType = this.settings.toasters;
     for (const a of this.actors) a.tick();
     this.actors = this.actors.filter(a => !a.dead);
-    if (this.population() < this.maxObjects()) this.spawn();
+    // rate-limit spawns (original waits ~500ms/channel) so toasters enter
+    // continuously and spread across the field instead of a synchronized burst
+    const t = now();
+    if (this.population() < this.maxObjects() && t > (this._lastSpawn || 0) + SPAWN_MS) {
+      this._lastSpawn = t;
+      this.spawn();
+    }
     if (this.settings.karaoke) this.karaoke.tick(TICK_MS);
   }
 
@@ -734,14 +748,22 @@ async function boot() {
   const canvas = document.getElementById('stage');
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
-  function rescale() {
-    const s = Math.max(1, Math.floor(Math.min(
-      window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H)));
-    canvas.style.width = `${DESIGN_W * s}px`;
-    canvas.style.height = `${DESIGN_H * s}px`;
+  // fill the window at load: field = window size, native-size sprites, 1:1
+  function fitField() {
+    DESIGN_W = Math.max(KAR_W, Math.round(window.innerWidth));
+    DESIGN_H = Math.max(KAR_H, Math.round(window.innerHeight));
+    canvas.width = DESIGN_W; canvas.height = DESIGN_H;
+    canvas.style.width = `${DESIGN_W}px`; canvas.style.height = `${DESIGN_H}px`;
+    ctx.imageSmoothingEnabled = false;
   }
-  window.addEventListener('resize', rescale);
-  rescale();
+  fitField();
+  // on resize the play field is fixed (keeps original resolution); re-fill only
+  // after the user settles, so the new window is used (a soft restart of layout)
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => location.reload(), 700);
+  });
 
   const panel = document.getElementById('panel');
   const togglePanel = () => panel.classList.toggle('hidden');
