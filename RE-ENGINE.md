@@ -135,3 +135,18 @@ ADPCM 22 kHz; already PCM-converted in `assets/sounds/22000..22012.wav`.
 - The 0x16ac8 PlayNoise context (likely a UI/monitor sound).
 - Full per-scenario chain table for all ~38 scenarios (have the mechanism +
   ~11 sampled; the rest are the same shape).
+
+## Gag rendering fidelity (live pool)
+
+Profiled the live-pool gags (GAG_B/GAG_C) by counting distinct toaster bodies
+drawn per frame from the MAIN channel alone:
+- **Self-contained multi-toaster** (both/all toasters drawn from one channel,
+  render correctly with no sub-channels): 2391, 2406, 2239 (donkey-hops/leapfrog),
+  2298, 2349, 1672.
+- **Solo** (one toaster): 658, 1361, 946.
+- **One toaster + prop** (toast/cord/police-light/waffles — correct as-is):
+  1213, 928, 1372, 1387, 2272 (love waffles), 878, 1232, 2421, 2736, 2910, 1349.
+So the live gags render their intended cast; the ones that truly needed separate
+sub-channel toasters were the 1-frame start-cards (2458/1402/2080/679), already
+filtered out. Full 4-channel coordination is only needed for family-A scenarios
+(not in the live pool) → multi-channel GagActor is a nice-to-have, not required.
