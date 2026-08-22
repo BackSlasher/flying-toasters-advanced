@@ -17,10 +17,13 @@ AD 2.0 / Pro modules (older art).
 - [x] **Crack RLID/CSTM sprite compression** — done, format documented in `tools/rlid.py`
 - [x] Decode all 40 sprite banks → transparent PNGs (`assets/sprites/<bank>/`) + `banks.json`;
       cast overview at `assets/cast_overview.png`
-- [ ] Extract karaoke syllable/timing data (lyric sprites decoded: banks 22100–22103) ← next
-- [ ] Map sequence labels/animation scripts (CompoundSequence data; 8100/8102 sidecars)
-- [ ] Lift behavior constants (spawn weights, doneness distribution, speeds, easter-egg
-      probabilities: jam toasters, satellites, police chase) from disassembly
+- [x] Extract karaoke syllable/timing data — ms-accurate tables for both songs (see BEHAVIOR.md)
+- [x] Map animation scripts — `tools/compound.py` → `assets/compound_*.json`
+      (2905-frame toaster choreography, 165 sequences; karaoke line layouts)
+- [x] Lift core behavior constants — 10Hz tick, population formulas, spawn mix,
+      flight state machine, art wiring → **BEHAVIOR.md**
+- [ ] Remaining class-level details (see BEHAVIOR.md "Still TODO"): food doneness pick,
+      cloud formation, intro slideshow order, BigGag choreography ← next
 - [ ] Convert 13 WAVs (IMA ADPCM → wav/ogg), pick music (`Music/*.mid`)
 - [ ] Build HTML/JS/CSS recreation
 - [ ] Validate against original running under Wine

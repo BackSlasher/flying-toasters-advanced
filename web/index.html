@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flying Toasters!</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage-wrap">
+  <canvas id="stage" width="640" height="480"></canvas>
+</div>
+<div id="panel" class="hidden">
+  <h1>Flying Toasters!</h1>
+  <label>Objects:
+    <select id="objects">
+      <option value="0">Flight</option>
+      <option value="25">Squadron</option>
+      <option value="50" selected>Air Wing</option>
+      <option value="75">Swarm</option>
+    </select>
+  </label>
+  <label>Toasters:
+    <select id="toasters">
+      <option value="0" selected>Adults</option>
+      <option value="1">Babies</option>
+      <option value="2">Random</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="karaoke"> Display Karaoke</label>
+  <label><input type="checkbox" id="sound"> Sound effects</label>
+  <div class="row">
+    <button id="intro-btn">Play intro</button>
+    <button id="close-btn">Close</button>
+  </div>
+  <p class="hint">Press <kbd>Esc</kbd> or click to toggle this panel.</p>
+</div>
+<div id="loading">Loading toasters…</div>
+<script src="player.js"></script>
+</body>
+</html>
