@@ -492,11 +492,12 @@ class Actor {
 // Plays ONE labeled chain, isolated, looping in place so an act can be judged.
 // startAt = fraction down the entry lane so it drifts across the middle.
 class DebugActor {
-  constructor(sv, chain) {
+  constructor(sv, chain, loop = true) {
     this.sv = sv;
     this.kind = 'debug';
     this.dead = false;
     this.weight = 0;
+    this.doLoop = loop;
     this.p = new Player(sv.compound, sv.art);
     this.chain = chain.slice();
     this.original = chain.slice();
@@ -511,6 +512,12 @@ class DebugActor {
   tick() {
     if (this.p.tick() !== 'end') return;
     if (this.chain.length) { this.p.enter(this.chain.shift()); return; }
+    if (!this.doLoop) {
+      // one-shot: after the chain, drift on plain flight (like the swarm does)
+      this.p.enter(93);
+      if (this.p.offscreen(20)) this.recenter();
+      return;
+    }
     // loop the whole chain; recenter if it wandered off so it stays watchable
     this.chain = this.original.slice();
     this.p.enter(this.chain.shift());
@@ -984,6 +991,11 @@ function buildDebug(saver) {
   auto.className = 'dbg-auto';
   auto.innerHTML = '<input type="checkbox" id="dbg-solo" checked> solo (pause the swarm)';
   bar.appendChild(auto);
+  const loopLbl = document.createElement('label');
+  loopLbl.className = 'dbg-auto';
+  loopLbl.innerHTML = '<input type="checkbox" id="dbg-loop" checked> loop act ' +
+    '(off = play once, then plain flight — matches the swarm)';
+  bar.appendChild(loopLbl);
 
   const byNum = {};
   let n = 0;
@@ -1016,7 +1028,8 @@ function buildDebug(saver) {
       byNum[n] = b;
       b.onclick = () => {
         saver.debugSolo = document.getElementById('dbg-solo').checked;
-        saver.setDebug(new DebugActor(saver, chain));
+        const doLoop = document.getElementById('dbg-loop').checked;
+        saver.setDebug(new DebugActor(saver, chain, doLoop));
         bar.querySelectorAll('button[data-id]').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
         showReview(b);
