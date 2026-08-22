@@ -89,3 +89,19 @@ Bank 22100 is 365×28 (karaoke text banner); 22101–22103 likely lyric strips t
 - VCS: jj repo; commit at milestones, not every step.
 - IP: Berkeley Systems assets, rights orphaned — extraction for personal use only, don't publish rips.
 - `ad-source/extracted/` = earlier partial rip (provenance unknown, matches PE resources exactly).
+
+## Overnight dig (autonomous) — engine internals
+
+Goal (user request): decode the engine's remaining secrets, especially act-chaining
+and the multi-actor gag system. Findings → RE-ENGINE.md.
+
+Questions to answer:
+1. How does an act chain to a persistent follow-on? (test case: bagel-eyes 878 → 912
+   bagel-cruise, art 332 = bagel). Where is 912 queued after 878?
+2. Family-A glue driver (0x10efe / 0x412719 / 0x414cd7): how sub-actors are created,
+   positioned, and coordinated; how follow-on sequences are chosen.
+3. Do gags spawn INDEPENDENT objects (toast pops → flies off as its own food)? Mechanism?
+4. Are one-shots 133/172/209 reactive (proximity to other toasters) or random?
+   (transitions.json says random pickers — verify no proximity check exists.)
+5. The morph (evolution gag 1288): regular→futuristic transition + sound.
+6. Sound triggers per act (fire crackling on burnt, morph whoosh, etc.).

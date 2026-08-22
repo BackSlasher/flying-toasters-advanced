@@ -144,8 +144,10 @@ class Player {
 const FOOD_ROLLS = [3039, 3024, 3019, 3002, 2997, 2979, 2969, 2974, 2974];
 // baby food RandShort(6)
 const BABYFOOD_ROLLS = [3274, 3279, 3286, 3291, 3296, 3301];
-// RE-NOTES §2: clouds (4 shapes, uniform), baby sky RandShort(10)
-const CLOUD_ROLLS = [3054, 3074, 3094, 3114];
+// RE-NOTES §2: clouds — 4 distinct shapes (arts 463/464/465/466). NB: the
+// 16 alias labels are NOT evenly spread; 3054/3074/3094/3114 all share art
+// 463, so use one label per actual shape here.
+const CLOUD_ROLLS = [3053, 3058, 3063, 3068];
 const BABYSKY_ROLLS = [3199, 3204, 3209, 3214, 3239, 3244, 3249, 3254, 3259, 3264];
 const MOON = 3239, COW = 3244, STARS = 3249;
 
@@ -780,34 +782,45 @@ const DEBUG_CATALOG = {
     ['cruise 1 (label 3)', [3]],
     ['cruise 2 (label 93)', [93]],
     ['coil heat act (18→33→48)', [18, 33, 33, 48]],
-    ['TOAST POP 748 (glow→pop)', [748]],
-    ['coil glow 878', [878]],
-    ['coil glow 945', [945]],
-    ['act 586→602→607', [586, 602, 602, 607]],
-    ['one-shot 133', [133]], ['one-shot 172', [172]], ['one-shot 209', [209]],
-    ['one-shot 231', [231]], ['one-shot 252', [252]],
+    ['act 586→602→607 (cruise 3)', [586, 602, 602, 607]],
+    ['fly up (133)', [133]], ['go around (172)', [172]],
+    ['slow/lane (209)', [209]],
+    ['change lane (231)', [231]], ['change lane 2 (252)', [252]],
     ['638 act (622→638→643)', [622, 638, 638, 643]],
-    ['turn-around 105', [105, 122]], ['turn-around 115', [115, 122]],
+    ['slow down? (105)', [105, 122]], ['turn/back-skip (115)', [115, 122]],
+  ],
+  'Transforms (persistent chains)': [
+    // RE-ENGINE.md: these chain to a follow-on that PERSISTS until offscreen.
+    ['bagel-eyes FULL (878→912)', [878, 912, 912, 912]],
+    ['bagel-cruise only (912)', [912]],
+    ['coil glow 945 (=mega 946)', [945]],
+    ['TOAST POP 748 (juggle→pop)', [748]],
+    ['MORPH evolution (1232→1287→1302)', [1232, 1287, 1287, 1302, 3]],
+    ['futuristic cruise (1287)', [1287]],
+    ['morph forward only (1232)', [1232]],
   ],
   'Food': [
-    ['pale toast tumble 3039', [3039]], ['bagel tumble 3024', [3024]],
-    ['toast hold 3019', [3019]], ['golden toast 3002', [3002]],
-    ['burnt hold 2997', [2997]], ['burnt tumble 2979', [2979]],
-    ['winged toast 2969', [2969]], ['buttered toast 2974', [2974]],
+    ['cracker (3039)', [3039]], ['bagel (3024)', [3024]],
+    ['waffle (3019)', [3019]], ['golden toast (3002)', [3002]],
+    ['brown bread (2997)', [2997]], ['brown bread moving (2979)', [2979]],
+    ['static toast (2969)', [2969]], ['static golden (2974)', [2974]],
+    ['jam toast? (330/331)', [329]],
   ],
   'Sky': [
-    ['cloud 3054', [3054]], ['cloud 3074', [3074]], ['cloud 3094', [3094]],
-    ['cloud 3114', [3114]], ['moon 3239', [3239]], ['cow-over-moon 3244', [3244]],
-    ['stars 3249', [3249]], ['stars 3254', [3254]], ['big star 3259', [3259]],
+    // clouds were all art 463; these 4 labels hit the 4 distinct shapes
+    ['cloud A (463)', [3053]], ['cloud B (464)', [3058]],
+    ['cloud C (465)', [3063]], ['cloud D (466)', [3068]],
+    ['(baby) moon 3239', [3239]], ['(baby) cow 3244', [3244]],
+    ['(baby) stars 3249', [3249]],
   ],
   'Gags': [
-    ['power cord 2421', [2421]], ['police chase 928', [928]],
-    ['evolution props 1288', [1288]], ['solo stunt 658', [658]],
-    ['toast juggle 792 (gag)', [792]], ['toast juggle 807 (gag)', [807]],
+    ['power cord 2421', [2421]], ['burning toaster (928)', [928]],
+    ['solo stunt 658', [658]],
+    ['toast goes in (792)', [792]], ['toast juggle cont (807)', [807]],
     ['diamond 2458', [2458]], ['finale 2910', [2910]],
-    ['head-on 2239', [2239]], ['4-cross 2272', [2272]],
-    ['upside-down 1361', [1361]], ['juggle 1372', [1372]],
-    ['toast+toaster 1213', [1213]], ['mega 946', [946]],
+    ['donkey hops / leapfrog (2239)', [2239]], ['love waffles (2272)', [2272]],
+    ['hoola hoop (1361)', [1361]], ['juggle 1372', [1372]],
+    ['toast+toaster 1213', [1213]], ['flip-over (946)', [946]],
     ['police card 679', [679]], ['3-wedge 2736', [2736]],
   ],
   '(baby) flight': [
