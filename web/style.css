@@ -69,6 +69,24 @@ html, body {
   margin: 10px 0 0;
 }
 
+#sound-btn {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 20;
+  background: rgba(30, 30, 46, .85);
+  color: #ddd;
+  border: 1px solid #4a4a5a;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .2s;
+}
+#sound-btn:hover { opacity: 1; }
+#sound-btn.on { background: rgba(58, 106, 58, .9); border-color: #6a9b6a; color: #fff; opacity: .9; }
+
 .hidden { display: none !important; }
 
 #debugbar {

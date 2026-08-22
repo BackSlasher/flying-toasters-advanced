@@ -102,7 +102,12 @@ class Player {
         }
       }
     }
-    // no shared art: rects chain absolutely (by design; no shift)
+    // no shared art (common for baby sequences, which change pose art between
+    // sequences): keep the sprite where it is by aligning the frame rects, so
+    // it continues from its current screen position instead of teleporting to
+    // the new sequence's absolute rect.
+    this.ox += (prev.rect[0] + prev.dx) - (link.rect[0] + link.dx);
+    this.oy += (prev.rect[1] + prev.dy) - (link.rect[1] + link.dy);
   }
   tick() {
     if (this.idx + 1 >= this.seq.length) return 'end';
@@ -172,7 +177,9 @@ const GAG_C = [[2421, 4], [2736, 1], [2910, 1], [1672, 2],
                [1349, 2], [946, 2]];
 // scenario -> follow-on. persist = loop this label until offscreen.
 const GAG_CHAINS = {
-  878: { chain: [912], persist: 912 },           // bagel act -> bagel-cruise forever
+  // 913 (not 912) so the persist loop skips seq 912's bagel-less link frame
+  // (f912=[body] only) that caused a 1-frame no-bagel flicker each loop.
+  878: { chain: [912], persist: 913 },           // bagel act -> bagel-cruise forever
   1232: { chain: [1287, 1287, 1303], persist: null }, // morph -> futuristic -> back -> 93
 };
 
@@ -571,7 +578,10 @@ class Karaoke {
         const cx = this.wordCenter(e.word);
         if (cx != null) {
           if (this.bagelX == null) this.bagelX = cx;
-          this.bagelTarget = { x: cx, t0: this.t, t1: this.t + (e.ms || 1), x0: this.bagelX };
+          // arrive quickly (lead ~ the highlight) instead of drifting over the
+          // whole syllable, which lagged behind the red word
+          const hop = Math.min(e.ms || 1, 180);
+          this.bagelTarget = { x: cx, t0: this.t, t1: this.t + hop, x0: this.bagelX };
         }
       } else if (e.ev === 4) {
         if (this.i >= this.events.length - 1) this.reset(this.song);
@@ -881,19 +891,46 @@ async function boot() {
   document.getElementById('music').onchange = e => {
     saver.settings.music = e.target.checked;
     syncMusic();
+    reflectSound();
   };
   document.getElementById('sound').onchange = e => {
     saver.settings.sound = e.target.checked;
     if (e.target.checked) saver.audio();         // unlock audio on user gesture
+    reflectSound();
   };
   document.getElementById('intro-btn').onclick = () => { saver.playIntro(); togglePanel(); };
   document.getElementById('debug-btn').onclick = () => { buildDebug(saver); togglePanel(); };
+
+  // Prominent top-left sound toggle: doubles as the user-gesture that unlocks
+  // WebAudio (browsers block autoplay on load). Turns music + SFX on together.
+  const soundBtn = document.getElementById('sound-btn');
+  function reflectSound() {
+    const on = saver.settings.music || saver.settings.sound;
+    soundBtn.textContent = on ? '🔊 sound on' : '🔇 sound off';
+    soundBtn.classList.toggle('on', on);
+    document.getElementById('music').checked = saver.settings.music;
+    document.getElementById('sound').checked = saver.settings.sound;
+  }
+  soundBtn.onclick = () => {
+    const on = !(saver.settings.music || saver.settings.sound);
+    saver.audio();                               // unlock on this gesture
+    if (saver.audioCtx) saver.audioCtx.resume();
+    saver.settings.music = on;
+    saver.settings.sound = on;
+    syncMusic();
+    reflectSound();
+  };
+  reflectSound();
 
   saver.playIntro();                             // authentic: intro on activation
 
   let acc = 0, last = performance.now();
   function frame(t) {
     acc += t - last; last = t;
+    // rAF is throttled/paused when the tab is hidden; on return, `acc` can be
+    // huge. Clamp catch-up to a few ticks so we don't storm-spawn or freeze
+    // (the swarm just resumes where it was rather than fast-forwarding).
+    if (acc > 5 * TICK_MS) acc = TICK_MS;
     let stepped = false;
     while (acc >= TICK_MS) { acc -= TICK_MS; saver.tick(); stepped = true; }
     if (stepped) saver.draw(ctx);
