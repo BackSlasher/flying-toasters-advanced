@@ -1,0 +1,219 @@
+{
+  "meta": {
+    "source": "Flying Toasters!.ad, FlyingToaster class",
+    "handlers": {
+      "launch": "0x186d9",
+      "flight": "0x188cf (kind3 adult/baby specials), 0x18fc8 (kind2), 0x19198 (kind1)",
+      "recovery": "0x1948a",
+      "pickers": "0x19dd4 (kind1), 0x19e34 (kind2), 0x19f14 (kind3)",
+      "kindRoll": "0x19d8d",
+      "kind3LaunchLabel": "0x19e80",
+      "startSpecial": "0x1a276",
+      "startPlain": "0x1a3ea"
+    },
+    "labelNote": "All labels decimal. Code labels are frame numbers inside compound bank 22000; most are runStart+1 of their sequence run (engine resolves the containing run). 'run' below = [firstFrame, lastFrame] of the containing sequence in compound_22000.json.",
+    "flags": {
+      "s44": "obj+0x44 current state label (dispatch key; may differ from the sequence actually queued - this builds the heading ladder)",
+      "s48": "obj+0x48 'scripted' flag: 1 = dispatch next boundary on s44; 0 = next boundary rolls a fresh label from the per-kind picker (s44 ignored)",
+      "s4a": "obj+0x4a 'interruptible/plain-flight' flag: 1 = plain loop, 0 = in special act (query fn 0x1a444 returns s4a==0)",
+      "s4c": "obj+0x4c 'not started' flag: 1 = suppress compound advance (only set by ctor, cleared at launch)"
+    },
+    "invocation": "GiveTime (0x18697) state 2/3 -> 0x1886b each 10Hz tick: die (state 3) if bbox fully past LEFT screen edge (0x179e7) or fully below BOTTOM edge (0x17a43); else if ctl byte +0x4a set (sequence queue needs refill) run the transition handler 0x188cf, then ctl vtbl+0x94, then advance compound if s4c==0.",
+    "death": "No sequence ends the object; toasters live until they drift off the left or bottom screen edge.",
+    "adultFlag": "obj+0x58, copied at spawn from ToasterControl+0x82c: 1 = adult song mode, 0 = baby song mode."
+  },
+  "launch": {
+    "spawn": "pos = 0x4171ad(compound) random spawn point; if x==-1000 or y==-1000 stay in state 1 and retry next tick. obj+0x38=pos, obj+0x64=compound.currentStore, obj+0x5c=now() after start.",
+    "kinds": {
+      "roll": "0x19d8d: if adult (+0x58!=0) r=RandShort(11): r==0 -> kind 3, r in 1..5 -> kind 2, r in 6..10 -> kind 1. If baby (+0x58==0) always kind 3.",
+      "adult": { "3": 0.0909, "2": 0.4545, "1": 0.4545 },
+      "baby": { "3": 1.0 }
+    },
+    "byKind": {
+      "1": {
+        "start": "0x1a3ea(obj, 3, pos): queueWithGlue(3), s44=3, s48=0, s4a=1, s4c=0, MoveTo(pos)",
+        "queue": [3]
+      },
+      "2": {
+        "start": "0x1a3ea(obj, 93, pos): queueWithGlue(93), s44=93, s48=0, s4a=1, s4c=0, MoveTo(pos)",
+        "queue": [93]
+      },
+      "3": {
+        "labelPick": "0x19e80: adult -> always 983. baby -> r=RandShort(24): r 0..7 -> jump table [1038,1107,1111,2391,1138,1154,1173,1192], r 8..23 -> 983",
+        "babyProbs": { "983": 0.6667, "1038": 0.0417, "1107": 0.0417, "1111": 0.0417, "2391": 0.0417, "1138": 0.0417, "1154": 0.0417, "1173": 0.0417, "1192": 0.0417 },
+        "start983": "0x1a3ea(obj, 983, pos): queue [983], s48=0, s4a=1, s4c=0, MoveTo(pos)",
+        "startSpecial": "0x1a276(obj, L, pos): queueWithGlue(L), s48=1, s4a=0, s4c=0, MoveTo(pos), then per-label overrides:",
+        "specialStart": {
+          "1038": { "queue": [1038], "pos": "spawn pos (no override)" },
+          "1107": { "queue": [1107, 1065], "sets": { "s44": 1107 }, "pos": "x = screen.right + 40, y = screen.top + 200 + RandShort(max(1, screenHeight-200))", "note": "enters from right edge; plays 1107 then long act 1065 (39 frames), state stays 1107" },
+          "1111": { "queue": [1111], "pos": "y = screen.bottom + 40, x = screenWidth/2 - 150 + RandShort(300)", "note": "enters from below, near horizontal center" },
+          "2391": { "queue": [2391], "pos": "x = word[ctl+0x44] + 20, y = word[ctl+0x46] - 8", "note": "anchored to a ToasterControl point (+0x44/+0x46), not the random spawn pos", "uncertain": true },
+          "1138": { "queue": [1138], "pos": "spawn pos" },
+          "1154": { "queue": [1154], "pos": "spawn pos" },
+          "1173": { "queue": [1173], "pos": "spawn pos" },
+          "1192": { "queue": [1192], "pos": "spawn pos" }
+        }
+      }
+    }
+  },
+  "pickers": {
+    "comment": "At each queue-empty boundary, if s48==0 the dispatch label is freshly rolled here (current s44 ignored); if s48==1 dispatch uses s44.",
+    "kind1": {
+      "fn": "0x19dd4", "roll": "RandShort(35)",
+      "map": { "1": 133, "2": 172, "3": 209, "10-19": 33, "20-29": 602, "else(0,4-9,30-34)": 3 },
+      "probs": { "133": 0.0286, "172": 0.0286, "209": 0.0286, "33": 0.2857, "602": 0.2857, "3": 0.3429 }
+    },
+    "kind2": {
+      "fn": "0x19e34", "roll": "RandShort(30)",
+      "map": { "2-3": 231, "5-6": 252, "10-19": 638, "else(0,1,4,7-9,20-29)": 93 },
+      "probs": { "231": 0.0667, "252": 0.0667, "638": 0.3333, "93": 0.5333 }
+    },
+    "kind3": {
+      "fn": "0x19f14", "roll": "RandShort(80)",
+      "map": { "0": 988, "1": 1014, "2": 1009, "3": 1019, "else(4-79)": 983 },
+      "probs": { "988": 0.0125, "1014": 0.0125, "1009": 0.0125, "1019": 0.0125, "983": 0.95 }
+    }
+  },
+  "flight": {
+    "3": [
+      { "kind": 1, "cond": "default case (label 3 has no explicit case)", "queue": [], "note": "falls to kind1 default: see defaults.kind1", "prob": 1.0 }
+    ],
+    "33": [
+      { "kind": 1, "cond": "s48 && rand10==0", "queue": [48], "sets": { "s44": 48, "s48": 1, "s4a": 1 }, "prob": 0.1, "note": "exit act" },
+      { "kind": 1, "cond": "s48 && rand10!=0 && offscreen(travel 33,48)", "queue": [48], "sets": { "s44": 48, "s48": 1, "s4a": 1 }, "prob": null },
+      { "kind": 1, "cond": "s48 && rand10!=0 && roomFor(33,48)", "queue": [33], "sets": { "s44": 33, "s48": 1, "s4a": 1 }, "prob": 0.9, "note": "keep looping 33" },
+      { "kind": 1, "cond": "!s48 && roomFor(18,48)", "queue": [18], "sets": { "s44": 33, "s48": 1, "s4a": 1 }, "note": "entry act 18, then loop as 33" },
+      { "kind": 1, "cond": "!s48 && !roomFor(18,48)", "queue": [], "note": "falls to kind1 default" }
+    ],
+    "133": [
+      { "kind": 1, "cond": "!endpointOffscreen(133)", "queue": [133], "sets": { "s44": 133, "s48": 0, "s4a": 1 }, "prob": 1.0, "note": "play once, then fresh pick (s48=0)" },
+      { "kind": 1, "cond": "endpointOffscreen(133)", "queue": [], "note": "falls to kind1 default" }
+    ],
+    "172": [
+      { "kind": 1, "cond": "!endpointOffscreen(172)", "queue": [172], "sets": { "s44": 172, "s48": 0, "s4a": 1 }, "prob": 1.0 },
+      { "kind": 1, "cond": "endpointOffscreen(172)", "queue": [], "note": "falls to kind1 default" }
+    ],
+    "209": [
+      { "kind": 1, "cond": "!endpointOffscreen(209)", "queue": [209], "sets": { "s44": 209, "s48": 0, "s4a": 1 }, "prob": 1.0 },
+      { "kind": 1, "cond": "endpointOffscreen(209)", "queue": [], "note": "falls to kind1 default" }
+    ],
+    "602": [
+      { "kind": 1, "cond": "s48 && rand10==0", "queue": [607], "sets": { "s44": 607, "s48": 0, "s4a": 1 }, "prob": 0.1, "note": "exit act 607" },
+      { "kind": 1, "cond": "s48 && rand10!=0 && offscreen(travel 602,607)", "queue": [607], "sets": { "s44": 607, "s48": 0, "s4a": 1 }, "prob": null },
+      { "kind": 1, "cond": "s48 && rand10!=0 && roomFor(602,607)", "queue": [602], "sets": { "s44": 602, "s48": 1, "s4a": 1 }, "prob": 0.9, "note": "keep looping 602" },
+      { "kind": 1, "cond": "!s48 && roomFor(586,607)", "queue": [586], "sets": { "s44": 602, "s48": 1, "s4a": 1 }, "note": "entry act 586, then loop as 602" },
+      { "kind": 1, "cond": "!s48 && !roomFor(586,607)", "queue": [], "note": "falls to kind1 default" }
+    ],
+    "93": [
+      { "kind": 2, "cond": "default case (label 93 has no explicit case)", "queue": [], "note": "falls to kind2 default", "prob": 1.0 }
+    ],
+    "231": [
+      { "kind": 2, "cond": "!endpointOffscreen(231)", "queue": [231], "sets": { "s44": 231, "s48": 0, "s4a": 1 }, "prob": 1.0 },
+      { "kind": 2, "cond": "endpointOffscreen(231)", "queue": [], "note": "falls to kind2 default" }
+    ],
+    "252": [
+      { "kind": 2, "cond": "!endpointOffscreen(252)", "queue": [252], "sets": { "s44": 252, "s48": 0, "s4a": 1 }, "prob": 1.0 },
+      { "kind": 2, "cond": "endpointOffscreen(252)", "queue": [], "note": "falls to kind2 default" }
+    ],
+    "638": [
+      { "kind": 2, "cond": "s48 && rand10==0", "queue": [643], "sets": { "s44": 643, "s48": 0, "s4a": 1 }, "prob": 0.1, "note": "exit act 643" },
+      { "kind": 2, "cond": "s48 && rand10!=0 && offscreen(travel 638,643)", "queue": [643], "sets": { "s44": 643, "s48": 0, "s4a": 1 }, "prob": null },
+      { "kind": 2, "cond": "s48 && rand10!=0 && roomFor(638,643)", "queue": [638], "sets": { "s44": 638, "s48": 1, "s4a": 1 }, "prob": 0.9, "note": "keep looping 638" },
+      { "kind": 2, "cond": "!s48 && roomFor(622,638)", "queue": [622], "sets": { "s44": 638, "s48": 1, "s4a": 1 }, "note": "entry act 622, then loop as 638" },
+      { "kind": 2, "cond": "!s48 && !roomFor(622,638)", "queue": [], "note": "falls to kind2 default" }
+    ],
+    "1009": [
+      { "kind": 3, "cond": "s48 && rand10==0 && !endpointOffscreen(1019)", "queue": [1019], "sets": { "s44": 1014, "s48": 1, "s4a": 1 }, "prob": 0.1, "note": "ladder up: play 1019, next state 1014" },
+      { "kind": 3, "cond": "s48 && (first roll missed/blocked) && rand10==0 && !endpointOffscreen(1009)", "queue": [1009], "sets": { "s44": 1009, "s48": 1, "s4a": 1 }, "prob": 0.09, "note": "stay on 1009" },
+      { "kind": 3, "cond": "s48 && both rolls miss", "queue": [], "prob": 0.81, "note": "falls to kind3 default (983)" },
+      { "kind": 3, "cond": "!s48 && roomFor(1009,1009,1009)", "queue": [1009, 1009, 1009], "sets": { "s44": 1009, "s48": 1, "s4a": 1 }, "note": "fresh pick from kind3 picker (1/80): loop 3x" },
+      { "kind": 3, "cond": "!s48 && !roomFor", "queue": [], "note": "falls to kind3 default" }
+    ],
+    "1014": [
+      { "kind": 3, "cond": "s48 && rand10==0 && !endpointOffscreen(1025)", "queue": [1025], "sets": { "s44": 1009, "s48": 1, "s4a": 1 }, "prob": 0.1, "note": "ladder down: play 1025, state 1009. NO jump to end - falls into second roll below (both can fire)" },
+      { "kind": 3, "cond": "s48 && rand10==0 && !endpointOffscreen(1014) (independent second roll)", "queue": [1014], "sets": { "s44": 1014, "s48": 1, "s4a": 1 }, "prob": 0.1, "note": "if both rolls hit, net queue = [1025, 1014] and s44 = 1014", "uncertain": true },
+      { "kind": 3, "cond": "s48 && both rolls miss", "queue": [], "prob": 0.81, "note": "falls to kind3 default (983)" },
+      { "kind": 3, "cond": "!s48 && roomFor(1014,1014,1014)", "queue": [1014, 1014, 1014], "sets": { "s44": 1014, "s48": 1, "s4a": 1 }, "note": "fresh pick (1/80): loop 3x" },
+      { "kind": 3, "cond": "!s48 && !roomFor", "queue": [], "note": "falls to kind3 default" }
+    ],
+    "1019": [
+      { "kind": 3, "cond": "!endpointOffscreen(1019)", "queue": [1019, 1025], "sets": { "s44": 1025, "s48": 0, "s4a": 1 }, "prob": 1.0, "note": "swoop pair, then release to picker (s48=0)" },
+      { "kind": 3, "cond": "endpointOffscreen(1019)", "queue": [], "note": "falls to kind3 default" }
+    ],
+    "1025": [
+      { "kind": 3, "cond": "same handler as 1019", "queue": [1019, 1025], "sets": { "s44": 1025, "s48": 0, "s4a": 1 }, "prob": 1.0 }
+    ],
+    "988": [
+      { "kind": 3, "cond": "s48 && rand5!=0 && !endpointOffscreen(pick)", "queue": ["pick = RandShort(3) -> one of 988/997/1003"], "sets": { "s44": "pick", "s48": 1, "s4a": 1 }, "prob": 0.8, "note": "wander among the three loops uniformly" },
+      { "kind": 3, "cond": "s48 && rand5==0", "queue": [], "prob": 0.2, "note": "falls to kind3 default (983)" },
+      { "kind": 3, "cond": "!s48 && !endpointOffscreen(988)", "queue": [988], "sets": { "s44": 988, "s48": 1, "s4a": 1 }, "note": "fresh pick (1/80) enters the trio" },
+      { "kind": 3, "cond": "!s48 && endpointOffscreen(988)", "queue": [], "note": "falls to kind3 default" }
+    ],
+    "997": [
+      { "kind": 3, "cond": "same case body as 988 (shared)", "queue": ["see 988"], "prob": 1.0 }
+    ],
+    "1003": [
+      { "kind": 3, "cond": "same case body as 988 (shared)", "queue": ["see 988"], "prob": 1.0 }
+    ],
+    "983": [
+      { "kind": 3, "cond": "no explicit case", "queue": [], "note": "falls to kind3 default: 95% requeue 983 via picker path; 1.25% each enter 988/1009/1014/1019 cases with s48==0", "prob": 1.0 }
+    ],
+    "1038": [
+      { "kind": 3, "cond": "always (both s48 branches identical)", "queue": [1038], "sets": { "s44": 1038, "s48": 1, "s4a": 0 }, "prob": 1.0, "note": "locked act: repeats until offscreen death" }
+    ],
+    "1107": [
+      { "kind": 3, "cond": "always", "queue": [1107], "sets": { "s44": 1107, "s48": 1, "s4a": 0 }, "prob": 1.0, "note": "locked act (launch already queued 1107+1065)" }
+    ],
+    "1111": [
+      { "kind": 3, "cond": "always", "queue": [983], "sets": { "s44": 983, "s48": 1, "s4a": 0 }, "prob": 1.0, "note": "after entry act 1111, hand off to plain flight 983; next boundary hits 983 (no case) -> default" }
+    ],
+    "1138": [
+      { "kind": 3, "cond": "s48", "queue": [1138], "sets": { "s44": 1138, "s48": 1, "s4a": 0 }, "prob": 1.0, "note": "locked act" },
+      { "kind": 3, "cond": "!s48 && obj+0x2c < obj+0x64 && obj+0x64 < obj+0x1c-2", "queue": [1138], "sets": { "s44": 1138, "s48": 1, "s4a": 0 }, "uncertain": true, "note": "UNREACHABLE: kind3 picker never returns 1138, so the !s48 flavor is dead code. Raw condition fields obj+0x2c/+0x1c/+0x64 unidentified." },
+      { "kind": 3, "cond": "!s48 && window check fails", "queue": [1154], "sets": { "s44": 1154, "s48": 1, "s4a": 0 }, "uncertain": true, "note": "dead code: falls into 1154 case body" }
+    ],
+    "1154": [
+      { "kind": 3, "cond": "always (both s48 branches identical)", "queue": [1154], "sets": { "s44": 1154, "s48": 1, "s4a": 0 }, "prob": 1.0, "note": "locked act" }
+    ],
+    "1173": [
+      { "kind": 3, "cond": "always (both branches identical)", "queue": [1173], "sets": { "s44": 1173, "s48": 1, "s4a": 0 }, "prob": 1.0, "note": "locked act" }
+    ],
+    "1192": [
+      { "kind": 3, "cond": "always (both branches identical)", "queue": [1192], "sets": { "s44": 1192, "s48": 1, "s4a": 0 }, "prob": 1.0, "note": "locked act" }
+    ],
+    "2391": [
+      { "kind": 3, "cond": "s48", "queue": [2391], "sets": { "s44": 2391, "s48": 1, "s4a": 0 }, "prob": 1.0, "note": "locked act" },
+      { "kind": 3, "cond": "!s48 && word[0x43a072]==0", "queue": [2391], "sets": { "s44": 2391, "s48": 1, "s4a": 0, "global 0x43a072": 1 }, "uncertain": true, "note": "UNREACHABLE dead code (picker never returns 2391 with s48==0), so the unique-act flag 0x43a072 is never actually set at runtime; it is only cleared in dtor/retire (0x18540/0x18647) when dying with s44==2391" },
+      { "kind": 3, "cond": "!s48 && word[0x43a072]!=0", "queue": [1038], "sets": { "s44": 1038, "s48": 1, "s4a": 0 }, "uncertain": true, "note": "dead code: falls into 1038 case body" }
+    ],
+    "48": [
+      { "kind": 1, "cond": "reached as state after exit act; no case", "queue": [], "note": "falls to kind1 default", "prob": 1.0 }
+    ],
+    "607": [
+      { "kind": 1, "cond": "state after exit act; s48=0 so fresh pick anyway", "queue": [], "prob": 1.0 }
+    ],
+    "643": [
+      { "kind": 2, "cond": "state after exit act; s48=0 so fresh pick anyway", "queue": [], "prob": 1.0 }
+    ]
+  },
+  "defaults": {
+    "comment": "Reached when no case fired (si==0). Guard g = 0x1987f(obj, L) simulates half then full step (quarter step for label 3) of L's travel delta from ctl anchor +0x44; nonzero result = offscreen edge object, passed to recovery 0x1948a.",
+    "kind1": {
+      "ok": { "queue": [3], "sets": { "s44": 3, "s48": 0, "s4a": 1, "obj+0x6c": "increment (loop counter)" } },
+      "recovery": "0x1948a kind1: mask=DirMask(obj->edge) (0x19f5e), e=edge->vtbl+0x24(); if mask&1||e try 133, then 172, then 209 (each: queueWithGlue, s48=0, s4a=1); else if mask&1 turn-around: s44 := (s44 in {115,105} ? 115 : 105), raw-queue s44; else if e s44:=3 and raw-queue; else raw-requeue current s44"
+    },
+    "kind2": {
+      "ok": { "queue": [93], "sets": { "s44": 93, "s48": 0, "s4a": 1 } },
+      "recovery": "0x1948a kind2: if mask&1||e: if mask&4 try 252 then 231 else try 231 then 252 (queueWithGlue, s48=0, s4a=1); else if mask&1 turn-around: if s44 in {115,105} then s44:=115 AND kind:=1 else s44:=105, raw-queue; else if e s44:=93 raw-queue; else raw-requeue current"
+    },
+    "kind3": {
+      "ok": { "queue": [983], "sets": { "s44": 983, "s48": 0, "s4a": 1 } },
+      "recovery": "0x1948a kind3: if mask&1 try 1009 (s48=1,s4a=1), then try 1014 (s48=1,s4a=1); else s44:=983, s48=0, s4a=1, queueWithGlue(983)"
+    }
+  },
+  "glue": {
+    "queueWithGlue (0x19cc1)": "if s44 in {115, 105} and target not in {115, 122}: queue [122, target]; else queue [target]. Then s44 := target. 105/115 = turn-around sequences, 122 = turn-completion glue.",
+    "queueList (0x19d10)": "same glue test applied to FIRST label only (via ctl vtbl+0x80/0x7c); remaining labels appended raw (vtbl+0x138); s44 := last label."
+  },
+  "notes": "Kinds: 1 and 2 are the two ADULT flight families (labels 2..654 in bank 22000; kind roll 0x19d8d gives each 5/11 for adults). Kind 3 is the baby-song family (labels 982..1207 plus 2390..2402); babies are ALWAYS kind 3, and 1-in-11 adult spawns also get kind 3 with plain flight 983 only (specials require +0x58==0). Every code label is verified present in compound_22000.json; most sit at runStart+1 (e.g. 983 in run 982-984, 33 in run 32-44); exact run starts: 1025, 1038, 1065, 1111. Locked special acts (s4a=0) repeat forever and end only by flying off the left/bottom screen edge. The 'unique act' globals 0x43a070 (1138) / 0x43a072 (2391) are cleared on death but the code that would set/check them is unreachable, so uniqueness is not actually enforced in this binary."
+}

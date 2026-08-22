@@ -140,12 +140,16 @@ class Player {
 }
 
 // ------------------------------------------------------------ actor catalog
-// Adult toaster: entry swoop label 3 (seq 2), standard flight 93 (seq 92),
-// flap-loop attitude ladder (adjacent variants; 10% switch per boundary).
-// Full transition graph transcription is in progress; specials disabled until
-// then so acts never splice mid-way.
-const ADULT_LOOPS = [17, 32, 47, 62, 77];
-const BABY_LOOPS = [987, 996, 1002, 1008, 1013, 1018, 1025, 1032];
+// Queued labels are engine-style: run-start + 1 (the run's first frame is the
+// link/glide pose used for common-art alignment).
+// Adult toaster: entry 3 (seq 2), cruise 93 (the standard swoop, seq 92).
+// One-shot vignettes (toast pop, coil glow, ...) play ONCE, then back to 93.
+const ADULT_CRUISE = 93;
+// one ACT: coils heat -> glow -> toast pops -> rides (phases in order)
+const TOAST_ACT = [18, 33, 48, 63, 78];
+// Baby flight ladder (loopable pure-flight runs) + rare one-shot vignettes.
+const BABY_LADDER = [988, 997, 1003, 1009, 1014, 1019, 1026, 1033];
+const BABY_VIGNETTES = [1039, 1066, 1112];
 
 // RE-NOTES §1: adult food picker RandShort(9) -> queued labels
 const FOOD_ROLLS = [3039, 3024, 3019, 3002, 2997, 2979, 2969, 2974, 2974];
@@ -176,13 +180,13 @@ class Actor {
 
     switch (kind) {
       case 'toaster': {
-        this.loop = pick(ADULT_LOOPS);
-        this.p.enter(rand(4) === 0 ? 93 : 3);
+        this.loop = ADULT_CRUISE;
+        this.p.enter(rand(4) === 0 ? ADULT_CRUISE : 3);
         this.enterFromEdge();
         break;
       }
       case 'baby': {
-        this.loop = pick(BABY_LOOPS);
+        this.loop = pick(BABY_LADDER);
         this.p.enter(983);
         this.enterFromEdge();
         break;
@@ -235,9 +239,12 @@ class Actor {
     else this.p.placeCenter(100 * (k - sy) - 50, -50);
   }
   tick() {
+    this.age = (this.age || 0) + 1;
+    if (!this.p.offscreen(0)) this.arrived = true;
     if (this.p.tick() !== 'end') return;
-    // sequence boundary
-    if (this.p.offscreen()) { this.die(); return; }
+    // sequence boundary: cull only after the actor has actually been seen
+    // (entry placement starts beyond the offscreen margin)
+    if (this.p.offscreen() && (this.arrived || this.age > 80)) { this.die(); return; }
     if (this.kind === 'intro') {
       if (this.chain.length) { this.p.enter(this.chain.shift()); return; }
       this.p.enter(93);
@@ -250,14 +257,33 @@ class Actor {
       return;
     }
     if (this.kind === 'gag-out') { this.p.enter(93); return; }
-    if (this.kind === 'toaster' || this.kind === 'baby') {
-      const loops = this.kind === 'baby' ? BABY_LOOPS : ADULT_LOOPS;
-      if (rand(10) === 0) {                     // 10% attitude change (adjacent)
-        const i = loops.indexOf(this.loop);
-        this.loop = loops[Math.max(0, Math.min(loops.length - 1,
-                                               i + (rand(2) ? 1 : -1)))];
+    if (this.kind === 'toaster') {
+      if (this.act && this.act.length) {        // acts play through, in order
+        this.p.enter(this.act.shift());
+      } else if (!this.act && rand(8) === 0) {
+        this.act = TOAST_ACT.slice();
+        this.p.enter(this.act.shift());
+      } else {
+        this.act = null;
+        this.p.enter(ADULT_CRUISE);
       }
-      this.p.enter(this.loop);
+      return;
+    }
+    if (this.kind === 'baby') {
+      if (this.inVignette) {
+        this.inVignette = false;
+        this.p.enter(this.loop);
+      } else if (rand(16) === 0) {
+        this.inVignette = true;
+        this.p.enter(pick(BABY_VIGNETTES));
+      } else {
+        if (rand(10) === 0) {                   // 10% ladder step (adjacent)
+          const i = BABY_LADDER.indexOf(this.loop);
+          this.loop = BABY_LADDER[Math.max(0, Math.min(BABY_LADDER.length - 1,
+                                                       i + (rand(2) ? 1 : -1)))];
+        }
+        this.p.enter(this.loop);
+      }
       return;
     }
     this.p.enter(this.loop);                     // food/cloud re-queue same
