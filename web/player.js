@@ -762,10 +762,13 @@ class Screensaver {
     if (this.settings.toasters !== 2) this.songType = this.settings.toasters;
     for (const a of this.actors) a.tick();
     this.actors = this.actors.filter(a => !a.dead);
-    // rate-limit spawns (original waits ~500ms/channel) so toasters enter
-    // continuously and spread across the field instead of a synchronized burst
+    // Stagger spawns so toasters enter continuously and spread (not a burst),
+    // but fill in a roughly fixed time regardless of field size: interval
+    // scales inversely with the population target (big window → faster fill).
     const t = now();
-    if (this.population() < this.maxObjects() && t > (this._lastSpawn || 0) + SPAWN_MS) {
+    const max = this.maxObjects();
+    const interval = Math.max(120, SPAWN_MS * 20 / max);   // ~7s to fill
+    if (this.population() < max && t > (this._lastSpawn || 0) + interval) {
       this._lastSpawn = t;
       this.spawn();
     }
