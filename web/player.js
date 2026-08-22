@@ -149,13 +149,17 @@ const CLOUD_ROLLS = [3054, 3074, 3094, 3114];
 const BABYSKY_ROLLS = [3199, 3204, 3209, 3214, 3239, 3244, 3249, 3254, 3259, 3264];
 const MOON = 3239, COW = 3244, STARS = 3249;
 
-// RE-NOTES §4: BigGag families B and C (single-channel scenarios).
-// [label, weight, gate] — family A (multi-actor glue) pending transcription.
-const GAG_B = [[2391, 2], [2406, 2], [1213, 1], [1227, 1], [1288, 1], [658, 1],
+// RE-NOTES §4: BigGag families B and C. Only SELF-CONTAINED scenarios are
+// enabled — ones whose main-channel sequence draws its whole cast from its own
+// item list (len>=5). Start-card scenarios (len==1: 2458 diamond, 1402, 2080,
+// 679 police-card) and the 3-frame 1227 need the multi-channel sub-actor driver
+// (family-A glue, not yet wired) and are omitted so nothing flashes-and-vanishes.
+// Police chase survives via self-contained scenario 928. [label, weight]
+const GAG_B = [[2391, 2], [2406, 2], [1213, 1], [1288, 1], [658, 1],
                [928, 1], [1361, 1], [1372, 1], [2239, 2], [1387, 1], [2272, 1],
                [2298, 1], [2349, 1]];
-const GAG_C = [[2421, 4], [2458, 4], [2736, 1], [2910, 1], [1402, 2], [1672, 2],
-               [2080, 2], [679, 2], [1349, 2], [879, 2], [946, 2]];
+const GAG_C = [[2421, 4], [2736, 1], [2910, 1], [1672, 2],
+               [1349, 2], [879, 2], [946, 2]];
 
 
 class ToasterActor {
@@ -452,6 +456,37 @@ class Actor {
   draw(ctx) { this.p.draw(ctx); }
 }
 
+// ------------------------------------------------------------- debug harness
+// Plays ONE labeled chain, isolated, looping in place so an act can be judged.
+// startAt = fraction down the entry lane so it drifts across the middle.
+class DebugActor {
+  constructor(sv, chain) {
+    this.sv = sv;
+    this.kind = 'debug';
+    this.dead = false;
+    this.weight = 0;
+    this.p = new Player(sv.compound, sv.art);
+    this.chain = chain.slice();
+    this.original = chain.slice();
+    this.p.enter(this.chain.shift());
+    this.recenter();
+  }
+  recenter() {
+    // start upper-right so the natural down-left drift crosses the visible
+    // center (the debug sidebar overlays the canvas's left ~210px)
+    this.p.placeCenter(DESIGN_W * 0.7, DESIGN_H * 0.28);
+  }
+  tick() {
+    if (this.p.tick() !== 'end') return;
+    if (this.chain.length) { this.p.enter(this.chain.shift()); return; }
+    // loop the whole chain; recenter if it wandered off so it stays watchable
+    this.chain = this.original.slice();
+    this.p.enter(this.chain.shift());
+    if (this.p.offscreen(20)) this.recenter();
+  }
+  draw(ctx) { this.p.draw(ctx); }
+}
+
 // ------------------------------------------------------------------ karaoke
 class Karaoke {
   constructor(sv) {
@@ -622,7 +657,21 @@ class Screensaver {
     });
   }
 
+  setDebug(actor) {
+    this.debugActor = actor;
+    if (actor && this.debugSolo) { this.actors = []; this.introRunning = false; }
+  }
+
   tick() {
+    if (this.debugActor) {
+      this.debugActor.tick();
+      if (!this.debugSolo) {                      // swarm continues alongside
+        for (const a of this.actors) a.tick();
+        this.actors = this.actors.filter(a => !a.dead);
+        if (this.population() < this.maxObjects()) this.spawn();
+      }
+      return;
+    }
     if (this.introRunning) {
       const intro = this.actors[0];
       intro.tick();
@@ -639,6 +688,8 @@ class Screensaver {
   draw(ctx) {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, DESIGN_W, DESIGN_H);
+    if (this.debugActor && this.debugSolo) { this.debugActor.draw(ctx); return; }
+    if (this.debugActor) this.debugActor.draw(ctx);
     // clouds/sky behind everything
     for (const a of this.actors)
       if (a.kind === 'cloud' || a.kind === 'babysky') a.draw(ctx);
@@ -707,6 +758,7 @@ async function boot() {
   };
   document.getElementById('sound').onchange = e => { saver.settings.sound = e.target.checked; };
   document.getElementById('intro-btn').onclick = () => { saver.playIntro(); togglePanel(); };
+  document.getElementById('debug-btn').onclick = () => { buildDebug(saver); togglePanel(); };
 
   saver.playIntro();                             // authentic: intro on activation
 
@@ -719,6 +771,92 @@ async function boot() {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+}
+
+// ------------------------------------------------------ debug button harness
+// Each entry: [label, chain]. Chain plays looped in isolation for judging.
+const DEBUG_CATALOG = {
+  'Adult flight': [
+    ['cruise 1 (label 3)', [3]],
+    ['cruise 2 (label 93)', [93]],
+    ['heat+toast act (18→33→48)', [18, 33, 33, 48]],
+    ['act 586→602→607', [586, 602, 602, 607]],
+    ['one-shot 133', [133]], ['one-shot 172', [172]], ['one-shot 209', [209]],
+    ['one-shot 231', [231]], ['one-shot 252', [252]],
+    ['638 act (622→638→643)', [622, 638, 638, 643]],
+    ['turn-around 105', [105, 122]], ['turn-around 115', [115, 122]],
+  ],
+  'Baby flight': [
+    ['plain 983', [983]], ['wander 988', [988]], ['wander 997', [997]],
+    ['wander 1003', [1003]], ['ladder 1009', [1009]], ['ladder 1014', [1014]],
+    ['swoop 1019→1025', [1019, 1025]],
+    ['special 1038', [1038]], ['special 1065', [1065]], ['special 1107', [1107, 1065]],
+    ['special 1111', [1111]], ['special 1138 (mom+babies)', [1138]],
+    ['special 1154', [1154]], ['special 1173', [1173]], ['special 1192', [1192]],
+    ['mother 2391', [2391]], ['mother 2406', [2406]],
+  ],
+  'Food': [
+    ['pale toast tumble 3039', [3039]], ['bagel tumble 3024', [3024]],
+    ['toast hold 3019', [3019]], ['golden toast 3002', [3002]],
+    ['burnt hold 2997', [2997]], ['burnt tumble 2979', [2979]],
+    ['winged toast 2969', [2969]], ['buttered toast 2974', [2974]],
+  ],
+  'Baby food': [
+    ['duck 3274', [3274]], ['duck wiggle 3279', [3279]], ['bottle 3286', [3286]],
+    ['pacifier 3291', [3291]], ['teddy 3296', [3296]], ['crib 3301', [3301]],
+  ],
+  'Sky': [
+    ['cloud 3054', [3054]], ['cloud 3074', [3074]], ['cloud 3094', [3094]],
+    ['cloud 3114', [3114]], ['moon 3239', [3239]], ['cow-over-moon 3244', [3244]],
+    ['stars 3249', [3249]], ['stars 3254', [3254]], ['big star 3259', [3259]],
+  ],
+  'Gags': [
+    ['power cord 2421', [2421]], ['police chase 928', [928]],
+    ['evolution props 1288', [1288]], ['solo stunt 658', [658]],
+    ['diamond 2458', [2458]], ['finale 2910', [2910]],
+    ['head-on 2239', [2239]], ['4-cross 2272', [2272]],
+    ['upside-down 1361', [1361]], ['juggle 1372', [1372]],
+    ['toast+toaster 1213', [1213]], ['mega 946', [946]],
+    ['police card 679', [679]], ['3-wedge 2736', [2736]],
+  ],
+};
+
+function buildDebug(saver) {
+  let bar = document.getElementById('debugbar');
+  if (bar) { bar.remove(); saver.debugActor = null; return; }
+  bar = document.createElement('div');
+  bar.id = 'debugbar';
+  const title = document.createElement('div');
+  title.className = 'dbg-title';
+  title.textContent = 'Debug — play one act (looped, isolated)';
+  bar.appendChild(title);
+  const auto = document.createElement('label');
+  auto.className = 'dbg-auto';
+  auto.innerHTML = '<input type="checkbox" id="dbg-solo" checked> solo (pause the swarm)';
+  bar.appendChild(auto);
+  for (const [group, items] of Object.entries(DEBUG_CATALOG)) {
+    const h = document.createElement('div');
+    h.className = 'dbg-group';
+    h.textContent = group;
+    bar.appendChild(h);
+    for (const [name, chain] of items) {
+      const b = document.createElement('button');
+      b.textContent = name;
+      b.onclick = () => {
+        saver.debugSolo = document.getElementById('dbg-solo').checked;
+        saver.setDebug(new DebugActor(saver, chain));
+        bar.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      };
+      bar.appendChild(b);
+    }
+  }
+  const clear = document.createElement('button');
+  clear.textContent = '✕ resume swarm';
+  clear.className = 'dbg-clear';
+  clear.onclick = () => { saver.setDebug(null); bar.querySelectorAll('button').forEach(x => x.classList.remove('active')); };
+  bar.appendChild(clear);
+  document.body.appendChild(bar);
 }
 
 boot();
