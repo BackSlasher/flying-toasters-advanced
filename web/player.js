@@ -537,7 +537,7 @@ class Karaoke {
     this.song = song;
     this.events = this.sv.karaokeTables[String(song)].events;
     this.i = -1;
-    this.deadline = this.events[0] ? this.events[0].ms : 0;
+    this.deadline = 0;            // durations are deltas accumulated by the loop
     this.t = 0;
     this.line = 0;
     this.reveal = new Set();
