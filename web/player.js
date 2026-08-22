@@ -112,20 +112,16 @@ class Player {
     this.oy = Math.round(cy - (t + b) / 2 - fr.dy);
   }
   draw(ctx, revealSlots = null) {
+    // a frame's item list is the COMPLETE draw set; props not in the current
+    // frame simply aren't drawn (no persistence) — matches the engine.
     const fr = this.cur();
     for (const it of fr.items) {
       if (revealSlots && it.artch > 1 && !revealSlots.has(it.artch)) continue;
-      const im = this.art.get(it.art) || this._held(it.artch);
+      const im = this.art.get(it.art);
       if (!im) continue;
-      this._hold(it.artch, im);
       ctx.drawImage(im, this.ox + it.rect[0] + fr.dx,
                         this.oy + it.rect[1] + fr.dy);
     }
-  }
-  _held(ch) { return this.heldArt ? this.heldArt.get(ch) : null; }
-  _hold(ch, im) {
-    if (!this.heldArt) this.heldArt = new Map();
-    this.heldArt.set(ch, im);
   }
   bounds() {
     const fr = this.cur();
@@ -140,16 +136,9 @@ class Player {
 }
 
 // ------------------------------------------------------------ actor catalog
-// Queued labels are engine-style: run-start + 1 (the run's first frame is the
-// link/glide pose used for common-art alignment).
-// Adult toaster: entry 3 (seq 2), cruise 93 (the standard swoop, seq 92).
-// One-shot vignettes (toast pop, coil glow, ...) play ONCE, then back to 93.
-const ADULT_CRUISE = 93;
-// one ACT: coils heat -> glow -> toast pops -> rides (phases in order)
-const TOAST_ACT = [18, 33, 48, 63, 78];
-// Baby flight ladder (loopable pure-flight runs) + rare one-shot vignettes.
-const BABY_LADDER = [988, 997, 1003, 1009, 1014, 1019, 1026, 1033];
-const BABY_VIGNETTES = [1039, 1066, 1112];
+// Toaster behavior implements assets/transitions.json (see RE-TRANSITIONS.md):
+// two adult flight families (kinds 1/2) + the baby family (kind 3), per-kind
+// label pickers, entry->loop->exit acts with room guards, locked specials.
 
 // RE-NOTES §1: adult food picker RandShort(9) -> queued labels
 const FOOD_ROLLS = [3039, 3024, 3019, 3002, 2997, 2979, 2969, 2974, 2974];
@@ -168,6 +157,215 @@ const GAG_B = [[2391, 2], [2406, 2], [1213, 1], [1227, 1], [1288, 1], [658, 1],
 const GAG_C = [[2421, 4], [2458, 4], [2736, 1], [2910, 1], [1402, 2], [1672, 2],
                [2080, 2], [679, 2], [1349, 2], [879, 2], [946, 2]];
 
+
+class ToasterActor {
+  constructor(sv, adultSong) {
+    this.sv = sv;
+    this.kind3 = false;
+    this.weight = 1;
+    this.dead = false;
+    this.p = new Player(sv.compound, sv.art);
+    this.queue = [];
+    this.travel = sv.travelCache;              // label -> measured [dx,dy]
+    this.adult = adultSong;
+
+    // kind roll (0x19d8d)
+    if (adultSong) {
+      const r = rand(11);
+      this.kind = r === 0 ? 3 : (r <= 5 ? 2 : 1);
+    } else this.kind = 3;
+
+    // launch (0x186d9 / 0x19e80)
+    if (this.kind === 1) { this.go([3], 3, 0, 1); this.edgeEntry(); }
+    else if (this.kind === 2) { this.go([93], 93, 0, 1); this.edgeEntry(); }
+    else {
+      let L = 983;
+      if (!adultSong) {
+        const r = rand(24);
+        if (r < 8) L = [1038, 1107, 1111, 2391, 1138, 1154, 1173, 1192][r];
+      }
+      if (L === 983) { this.go([983], 983, 0, 1); this.edgeEntry(); }
+      else {
+        if (L === 1107) { this.go([1107, 1065], 1107, 1, 0); this.enterAt(DESIGN_W + 40, 200 + rand(DESIGN_H - 200)); }
+        else if (L === 1111) { this.go([1111], 1111, 1, 0); this.enterAt(DESIGN_W / 2 - 150 + rand(300), DESIGN_H + 40); }
+        else { this.go([L], L, 1, 0); this.edgeEntry(); }
+      }
+    }
+  }
+  edgeEntry() {
+    const nTop = Math.ceil(DESIGN_W / 160), nRight = Math.ceil(DESIGN_H / 160);
+    const k = rand(nTop + nRight);
+    if (k < nTop) this.enterAt(k * 160 + rand(160) - 40, -80);
+    else this.enterAt(DESIGN_W + 80, (k - nTop) * 80 + rand(80));
+  }
+  enterAt(cx, cy) { this.p.placeCenter(cx, cy); }
+
+  // queueWithGlue (0x19cc1): leaving a turn-around needs glue 122
+  go(labels, s44, s48, s4a) {
+    if ((this.s44 === 115 || this.s44 === 105) &&
+        labels.length && labels[0] !== 115 && labels[0] !== 122) {
+      labels = [122, ...labels];
+    }
+    this.queue = labels.slice();
+    this.s44 = s44; this.s48 = s48; this.s4a = s4a;
+    this.startLabel = this.queue[0];
+    this._startPos = this.pos();
+    this.p.enter(this.queue.shift());
+  }
+  pos() {
+    if (!this.p.seq) return [0, 0];
+    const b = this.p.bounds();
+    return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+  }
+  // travel guards: measured deltas (self-calibrating); unknown -> assume ok
+  predict(labels) {
+    let [x, y] = this.pos();
+    for (const l of labels) {
+      const t = this.travel.get(l);
+      if (!t) return null;
+      x += t[0]; y += t[1];
+    }
+    return [x, y];
+  }
+  room(labels) {
+    const p = this.predict(labels);
+    if (!p) return true;
+    return p[0] > 40 && p[0] < DESIGN_W - 40 && p[1] > 40 && p[1] < DESIGN_H - 40;
+  }
+  epOff(label) {
+    const p = this.predict([label]);
+    if (!p) return false;
+    return p[0] < 0 || p[0] > DESIGN_W || p[1] < 0 || p[1] > DESIGN_H;
+  }
+
+  pickerRoll() {
+    if (this.kind === 1) {
+      const r = rand(35);
+      if (r === 1) return 133;
+      if (r === 2) return 172;
+      if (r === 3) return 209;
+      if (r >= 10 && r <= 19) return 33;
+      if (r >= 20 && r <= 29) return 602;
+      return 3;
+    }
+    if (this.kind === 2) {
+      const r = rand(30);
+      if (r === 2 || r === 3) return 231;
+      if (r === 5 || r === 6) return 252;
+      if (r >= 10 && r <= 19) return 638;
+      return 93;
+    }
+    const r = rand(80);
+    return [988, 1014, 1009, 1019][r] || 983;
+  }
+
+  boundary() {
+    // record measured travel for the label that just finished
+    if (this.startLabel != null && this._startPos) {
+      const [x0, y0] = this._startPos, [x1, y1] = this.pos();
+      this.travel.set(this.startLabel, [x1 - x0, y1 - y0]);
+    }
+    if (this.queue.length) {
+      this.startLabel = this.queue[0];
+      this._startPos = this.pos();
+      this.p.enter(this.queue.shift());
+      return;
+    }
+    const s48 = this.s48;
+    const L = s48 ? this.s44 : this.pickerRoll();
+    if (!this.dispatch(L, s48)) {
+      const plain = this.kind === 1 ? 3 : this.kind === 2 ? 93 : 983;
+      this.go([plain], plain, 0, 1);
+    }
+  }
+
+  dispatch(L, s48) {
+    const k = this.kind;
+    if (k === 1 && L === 33) return this.loopAct(s48, 18, 33, 48, 1);
+    if (k === 1 && L === 602) return this.loopAct(s48, 586, 602, 607, 0);
+    if (k === 1 && (L === 133 || L === 172 || L === 209)) return this.oneShot(L);
+    if (k === 2 && L === 638) return this.loopAct(s48, 622, 638, 643, 0);
+    if (k === 2 && (L === 231 || L === 252)) return this.oneShot(L);
+    if (k === 3) return this.dispatchK3(L, s48);
+    return false;
+  }
+  loopAct(s48, entry, loop, exit, exitS48) {
+    if (s48) {
+      if (rand(10) === 0 || !this.room([loop, exit])) this.go([exit], exit, exitS48, 1);
+      else this.go([loop], loop, 1, 1);
+      return true;
+    }
+    if (this.room([entry, exit])) { this.go([entry], loop, 1, 1); return true; }
+    return false;
+  }
+  oneShot(L) {
+    if (this.epOff(L)) return false;
+    this.go([L], L, 0, 1);
+    return true;
+  }
+  dispatchK3(L, s48) {
+    const LOCKED = { 1038: 1038, 1107: 1107, 1138: 1138, 1154: 1154, 1173: 1173, 1192: 1192, 2391: 2391 };
+    if (LOCKED[L]) { this.go([L], L, 1, 0); return true; }
+    if (L === 1111) { this.go([983], 983, 1, 0); return true; }
+    if (L === 1009) {
+      if (s48) {
+        if (rand(10) === 0 && !this.epOff(1019)) { this.go([1019], 1014, 1, 1); return true; }
+        if (rand(10) === 0 && !this.epOff(1009)) { this.go([1009], 1009, 1, 1); return true; }
+        return false;
+      }
+      if (this.room([1009, 1009, 1009])) { this.go([1009, 1009, 1009], 1009, 1, 1); return true; }
+      return false;
+    }
+    if (L === 1014) {
+      if (s48) {
+        // faithful fall-through quirk: both rolls may fire -> [1025, 1014]
+        const q = [];
+        let s44 = null;
+        if (rand(10) === 0 && !this.epOff(1025)) { q.push(1025); s44 = 1009; }
+        if (rand(10) === 0 && !this.epOff(1014)) { q.push(1014); s44 = 1014; }
+        if (q.length) { this.go(q, s44, 1, 1); return true; }
+        return false;
+      }
+      if (this.room([1014, 1014, 1014])) { this.go([1014, 1014, 1014], 1014, 1, 1); return true; }
+      return false;
+    }
+    if (L === 1019 || L === 1025) {
+      if (this.epOff(1019)) return false;
+      this.go([1019, 1025], 1025, 0, 1);
+      return true;
+    }
+    if (L === 988 || L === 997 || L === 1003) {
+      if (s48) {
+        if (rand(5) === 0) return false;
+        const pick = [988, 997, 1003][rand(3)];
+        if (this.epOff(pick)) return false;
+        this.go([pick], pick, 1, 1);
+        return true;
+      }
+      if (!this.epOff(988)) { this.go([988], 988, 1, 1); return true; }
+      return false;
+    }
+    return false;                                // 983 and others -> default
+  }
+
+  tick() {
+    this.age = (this.age || 0) + 1;
+    if (!this.p.offscreen(0)) this.arrived = true;
+    if (this.p.tick() !== 'end') return;
+    // death: fully past left or bottom edge only (0x179e7 / 0x17a43)
+    const b = this.p.bounds();
+    if ((b[2] < 0 || b[1] > DESIGN_H) && (this.arrived || this.age > 120)) {
+      this.dead = true;
+      return;
+    }
+    // safety: locked specials that drift off top/right would never die
+    if (this.p.offscreen(120) && this.age > 400) { this.dead = true; return; }
+    this.boundary();
+  }
+  get kindName() { return this.kind === 3 && !this.adult ? 'baby' : 'toaster'; }
+  draw(ctx) { this.p.draw(ctx); }
+}
+
 class Actor {
   /* kind: toaster | baby | food | babyfood | cloud | babysky | gag | intro */
   constructor(sv, kind, label) {
@@ -179,18 +377,6 @@ class Actor {
     this.loop = null;
 
     switch (kind) {
-      case 'toaster': {
-        this.loop = ADULT_CRUISE;
-        this.p.enter(rand(4) === 0 ? ADULT_CRUISE : 3);
-        this.enterFromEdge();
-        break;
-      }
-      case 'baby': {
-        this.loop = pick(BABY_LADDER);
-        this.p.enter(983);
-        this.enterFromEdge();
-        break;
-      }
       case 'food': case 'babyfood': {
         this.loop = pick(kind === 'food' ? FOOD_ROLLS : BABYFOOD_ROLLS);
         this.p.enter(this.loop);
@@ -257,35 +443,6 @@ class Actor {
       return;
     }
     if (this.kind === 'gag-out') { this.p.enter(93); return; }
-    if (this.kind === 'toaster') {
-      if (this.act && this.act.length) {        // acts play through, in order
-        this.p.enter(this.act.shift());
-      } else if (!this.act && rand(8) === 0) {
-        this.act = TOAST_ACT.slice();
-        this.p.enter(this.act.shift());
-      } else {
-        this.act = null;
-        this.p.enter(ADULT_CRUISE);
-      }
-      return;
-    }
-    if (this.kind === 'baby') {
-      if (this.inVignette) {
-        this.inVignette = false;
-        this.p.enter(this.loop);
-      } else if (rand(16) === 0) {
-        this.inVignette = true;
-        this.p.enter(pick(BABY_VIGNETTES));
-      } else {
-        if (rand(10) === 0) {                   // 10% ladder step (adjacent)
-          const i = BABY_LADDER.indexOf(this.loop);
-          this.loop = BABY_LADDER[Math.max(0, Math.min(BABY_LADDER.length - 1,
-                                                       i + (rand(2) ? 1 : -1)))];
-        }
-        this.p.enter(this.loop);
-      }
-      return;
-    }
     this.p.enter(this.loop);                     // food/cloud re-queue same
   }
   die() {
@@ -380,6 +537,7 @@ class Screensaver {
     this.songType = 0;
     this.karaoke = new Karaoke(this);
     this.moonActive = false;
+    this.travelCache = new Map();
     this.lastCloud = -1e9; this.lastGag = -1e9;
     this.lastGagB = -1e9; this.lastGagC = -1e9;
     this.audioCtx = null;
@@ -411,7 +569,7 @@ class Screensaver {
   }
   population() {
     return this.actors.reduce((s, a) =>
-      s + (a.kind.startsWith('cloud') || a.kind === 'babysky' ? 0 : a.weight), 0);
+      s + (a.kind === 'cloud' || a.kind === 'babysky' ? 0 : a.weight), 0);
   }
 
   playIntro() {
@@ -446,13 +604,12 @@ class Screensaver {
       this.spawnGag();
       return;
     }
-    const toasters = this.actors.filter(a => a.kind === 'toaster' || a.kind === 'baby').length;
-    const food = this.actors.filter(a => a.kind.endsWith('food')).length;
+    const toasters = this.actors.filter(a => a instanceof ToasterActor).length;
+    const food = this.actors.filter(a => a.kind === 'food' || a.kind === 'babyfood').length;
     const ratio = food > 0 ? toasters / food : 4.0;
     const wantFood = (r === 2 && ratio > 2.0) || (r >= 3 && ratio > 4.0);
-    const kind = wantFood ? (baby ? 'babyfood' : 'food')
-                          : (baby ? 'baby' : 'toaster');
-    this.actors.push(new Actor(this, kind));
+    if (wantFood) this.actors.push(new Actor(this, baby ? 'babyfood' : 'food'));
+    else this.actors.push(new ToasterActor(this, !baby));
     if (this.settings.sound && rand(8) === 0) this.playSound(pick([22002, 22003, 22004]));
   }
 
