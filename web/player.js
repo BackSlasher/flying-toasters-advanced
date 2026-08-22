@@ -412,7 +412,11 @@ class Actor {
         this.p.enter(fam[0]);
         this.enterFromEdge();
         this.scenario = fam[0];
-        sv.playSound(22010);
+        sv.playSound(22010);                     // gag whoosh (RE-ENGINE.md)
+        // scenario-specific SFX
+        if (fam[0] === 928) sv.playSound(22001);            // fire / burning
+        else if (fam[0] === 679 || fam[0] === 1349) sv.playSound(22005); // police siren
+        else if (fam[0] === 1232 || fam[0] === 1288) sv.playSound(22012); // morph warp
         break;
       }
       case 'intro': {
@@ -521,8 +525,13 @@ class Karaoke {
     const it = fr.items.find(i => i.artch === slot);
     return it ? (it.rect[0] + it.rect[2]) / 2 : null;
   }
-  tick(ms) {
-    this.t += ms;
+  tick(ms, absMs) {
+    // when music drives it, snap the clock to audio playback time (stays in
+    // sync); otherwise advance by the tick delta
+    if (absMs != null) {
+      if (absMs < this.t) this.reset(this.song);   // song looped
+      this.t = absMs;
+    } else this.t += ms;
     while (this.t >= this.deadline && this.i < this.events.length - 1) {
       this.i++;
       const e = this.events[this.i];
@@ -586,7 +595,17 @@ class Screensaver {
     this.lastCloud = -1e9; this.lastGag = -1e9;
     this.lastGagB = -1e9; this.lastGagC = -1e9;
     this.audioCtx = null;
+    this.sfxCache = new Map();                    // wav id -> decoded AudioBuffer
+    this.music = { buffer: null, src: null, startAt: 0, song: null };
+    this.settings.music = false;
     this.introRunning = false;
+  }
+
+  audio() {
+    if (!this.audioCtx)
+      this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+    return this.audioCtx;
   }
 
   maxObjects() {
@@ -655,16 +674,41 @@ class Screensaver {
     const wantFood = (r === 2 && ratio > 2.0) || (r >= 3 && ratio > 4.0);
     if (wantFood) this.actors.push(new Actor(this, baby ? 'babyfood' : 'food'));
     else this.actors.push(new ToasterActor(this, !baby));
-    if (this.settings.sound && rand(8) === 0) this.playSound(pick([22002, 22003, 22004]));
+    // (no per-spawn sound — the engine's WAVs are gag SFX; swarm is music-only)
   }
 
-  playSound(id) {
+  // WAV id -> decoded buffer -> play. Gag SFX per RE-ENGINE.md sound map.
+  playSound(id, gain = 1) {
     if (!this.settings.sound || !this.sounds[id]) return;
-    if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    this.audioCtx.decodeAudioData(this.sounds[id].slice(0), d => {
-      const s = this.audioCtx.createBufferSource();
-      s.buffer = d; s.connect(this.audioCtx.destination); s.start();
-    });
+    const ctx = this.audio();
+    const fire = buf => {
+      const s = ctx.createBufferSource(); s.buffer = buf;
+      const g = ctx.createGain(); g.gain.value = gain;
+      s.connect(g); g.connect(ctx.destination); s.start();
+    };
+    const cached = this.sfxCache.get(id);
+    if (cached) return fire(cached);
+    ctx.decodeAudioData(this.sounds[id].slice(0),
+      d => { this.sfxCache.set(id, d); fire(d); });
+  }
+
+  // Music: play the matching song, aligned so karaoke can read playback time.
+  playMusic(song) {
+    const ctx = this.audio();
+    const buf = this.music.buffers && this.music.buffers[song];
+    if (!buf) { this.music.pending = song; return; }
+    this.stopMusic();
+    const s = ctx.createBufferSource();
+    s.buffer = buf; s.loop = true;
+    s.connect(ctx.destination); s.start();
+    this.music.src = s; this.music.startAt = ctx.currentTime; this.music.song = song;
+  }
+  stopMusic() {
+    if (this.music.src) { try { this.music.src.stop(); } catch {} this.music.src = null; }
+  }
+  musicMs() {
+    if (!this.music.src) return null;
+    return (this.audioCtx.currentTime - this.music.startAt) * 1000;
   }
 
   setDebug(actor) {
@@ -698,7 +742,7 @@ class Screensaver {
       this._lastSpawn = t;
       this.spawn();
     }
-    if (this.settings.karaoke) this.karaoke.tick(TICK_MS);
+    if (this.settings.karaoke) this.karaoke.tick(TICK_MS, this.musicMs());
   }
 
   draw(ctx) {
@@ -730,7 +774,7 @@ async function boot() {
     karArt.load(ids.filter(b => b >= 22100), banksMeta),
   ]);
   const sounds = {};
-  for (const id of [22002, 22003, 22004, 22010]) {
+  for (let id = 22000; id <= 22012; id++) {
     fetch(`${ASSETS}/sounds/${id}.wav`).then(r => r.arrayBuffer())
       .then(b => { sounds[id] = b; }).catch(() => {});
   }
@@ -742,6 +786,21 @@ async function boot() {
     banksMeta, karaokeTables, sounds,
   });
   window.saver = saver;                          // debug hook
+
+  // music: decode the two karaoke songs (WebAudio) once an AudioContext exists
+  saver.music.buffers = {};
+  const decodeMusic = () => {
+    const ctx = saver.audio();
+    for (const song of [0, 1]) {
+      if (saver.music.buffers[song]) continue;
+      fetch(`${ASSETS}/music/song${song}.ogg`).then(r => r.arrayBuffer())
+        .then(b => ctx.decodeAudioData(b))
+        .then(buf => {
+          saver.music.buffers[song] = buf;
+          if (saver.music.pending === song) { saver.music.pending = null; saver.playMusic(song); }
+        }).catch(() => {});
+    }
+  };
 
   document.getElementById('loading').classList.add('hidden');
 
@@ -767,16 +826,36 @@ async function boot() {
   canvas.addEventListener('click', togglePanel);
   document.getElementById('close-btn').onclick = togglePanel;
   document.getElementById('objects').onchange = e => { saver.settings.objects = +e.target.value; };
+  const syncMusic = () => {
+    if (saver.settings.music) { decodeMusic(); saver.playMusic(saver.songType); }
+    else saver.stopMusic();
+  };
   document.getElementById('toasters').onchange = e => {
     saver.settings.toasters = +e.target.value;
     if (saver.settings.toasters === 2) saver.songType = rand(2);
     if (saver.settings.karaoke) saver.karaoke.reset(saver.songType);
+    if (saver.settings.music) syncMusic();
   };
   document.getElementById('karaoke').onchange = e => {
     saver.settings.karaoke = e.target.checked;
-    if (e.target.checked) saver.karaoke.reset(saver.songType);
+    if (e.target.checked) {
+      saver.karaoke.reset(saver.songType);
+      // karaoke wants the song playing to stay in sync
+      if (!saver.settings.music) {
+        saver.settings.music = true;
+        document.getElementById('music').checked = true;
+        syncMusic();
+      }
+    }
   };
-  document.getElementById('sound').onchange = e => { saver.settings.sound = e.target.checked; };
+  document.getElementById('music').onchange = e => {
+    saver.settings.music = e.target.checked;
+    syncMusic();
+  };
+  document.getElementById('sound').onchange = e => {
+    saver.settings.sound = e.target.checked;
+    if (e.target.checked) saver.audio();         // unlock audio on user gesture
+  };
   document.getElementById('intro-btn').onclick = () => { saver.playIntro(); togglePanel(); };
   document.getElementById('debug-btn').onclick = () => { buildDebug(saver); togglePanel(); };
 
