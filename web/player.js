@@ -757,13 +757,9 @@ async function boot() {
     ctx.imageSmoothingEnabled = false;
   }
   fitField();
-  // on resize the play field is fixed (keeps original resolution); re-fill only
-  // after the user settles, so the new window is used (a soft restart of layout)
-  let resizeTimer = null;
-  window.addEventListener('resize', () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => location.reload(), 700);
-  });
+  // live re-fit on resize (no reload — avoids F12/devtools docking reloading
+  // the page). The field is just a coordinate space; in-flight actors continue.
+  window.addEventListener('resize', fitField);
 
   const panel = document.getElementById('panel');
   const togglePanel = () => panel.classList.toggle('hidden');
