@@ -122,6 +122,33 @@ html, body {
 }
 #debugbar button.active .dbg-num { color: #cfe8cf; }
 #debugbar .dbg-clear { margin-top: 10px; background: #4a2a2a; }
+#debugbar .dbg-copy { margin-top: 6px; margin-bottom: 20px; background: #2a3a4a; }
+#debugbar button.rv-v { border-left: 3px solid #6a9b6a; }
+#debugbar button.rv-x { border-left: 3px solid #b06a6a; }
+#debugbar button[data-tag]::after { content: attr(data-tag); float: right; opacity: .8; }
+
+#reviewpanel {
+  position: fixed;
+  bottom: 0;
+  left: 220px;
+  right: 0;
+  background: #1a1a26;
+  color: #ddd;
+  border-top: 2px solid #3a3a4a;
+  padding: 8px 12px;
+  font-size: 12px;
+  z-index: 10;
+}
+#reviewpanel .rp-head { color: #9be89b; font-weight: bold; margin-bottom: 6px; }
+#reviewpanel .rp-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+#reviewpanel #rp-v, #reviewpanel #rp-x {
+  padding: 4px 12px; border: 1px solid #444; border-radius: 4px;
+  background: #2a2a3a; color: #ddd; cursor: pointer; font-size: 12px;
+}
+#reviewpanel #rp-v.on { background: #3a6a3a; border-color: #6a9b6a; color: #fff; }
+#reviewpanel #rp-x.on { background: #6a3a3a; border-color: #b06a6a; color: #fff; }
+#reviewpanel #rp-name { flex: 1; padding: 4px 8px; background: #2a2a3a; color: #fff; border: 1px solid #444; border-radius: 4px; }
+#reviewpanel #rp-notes { width: 100%; box-sizing: border-box; background: #2a2a3a; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 4px 8px; font-family: inherit; resize: vertical; }
 
 #loading {
   position: fixed;

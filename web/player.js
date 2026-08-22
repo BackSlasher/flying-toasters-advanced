@@ -779,31 +779,18 @@ const DEBUG_CATALOG = {
   'Adult flight': [
     ['cruise 1 (label 3)', [3]],
     ['cruise 2 (label 93)', [93]],
-    ['heat+toast act (18→33→48)', [18, 33, 33, 48]],
+    ['coil heat act (18→33→48)', [18, 33, 33, 48]],
     ['act 586→602→607', [586, 602, 602, 607]],
     ['one-shot 133', [133]], ['one-shot 172', [172]], ['one-shot 209', [209]],
     ['one-shot 231', [231]], ['one-shot 252', [252]],
     ['638 act (622→638→643)', [622, 638, 638, 643]],
     ['turn-around 105', [105, 122]], ['turn-around 115', [115, 122]],
   ],
-  'Baby flight': [
-    ['plain 983', [983]], ['wander 988', [988]], ['wander 997', [997]],
-    ['wander 1003', [1003]], ['ladder 1009', [1009]], ['ladder 1014', [1014]],
-    ['swoop 1019→1025', [1019, 1025]],
-    ['special 1038', [1038]], ['special 1065', [1065]], ['special 1107', [1107, 1065]],
-    ['special 1111', [1111]], ['special 1138 (mom+babies)', [1138]],
-    ['special 1154', [1154]], ['special 1173', [1173]], ['special 1192', [1192]],
-    ['mother 2391', [2391]], ['mother 2406', [2406]],
-  ],
   'Food': [
     ['pale toast tumble 3039', [3039]], ['bagel tumble 3024', [3024]],
     ['toast hold 3019', [3019]], ['golden toast 3002', [3002]],
     ['burnt hold 2997', [2997]], ['burnt tumble 2979', [2979]],
     ['winged toast 2969', [2969]], ['buttered toast 2974', [2974]],
-  ],
-  'Baby food': [
-    ['duck 3274', [3274]], ['duck wiggle 3279', [3279]], ['bottle 3286', [3286]],
-    ['pacifier 3291', [3291]], ['teddy 3296', [3296]], ['crib 3301', [3301]],
   ],
   'Sky': [
     ['cloud 3054', [3054]], ['cloud 3074', [3074]], ['cloud 3094', [3094]],
@@ -813,17 +800,47 @@ const DEBUG_CATALOG = {
   'Gags': [
     ['power cord 2421', [2421]], ['police chase 928', [928]],
     ['evolution props 1288', [1288]], ['solo stunt 658', [658]],
+    ['toast juggle 792 (gag)', [792]], ['toast juggle 807 (gag)', [807]],
     ['diamond 2458', [2458]], ['finale 2910', [2910]],
     ['head-on 2239', [2239]], ['4-cross 2272', [2272]],
     ['upside-down 1361', [1361]], ['juggle 1372', [1372]],
     ['toast+toaster 1213', [1213]], ['mega 946', [946]],
     ['police card 679', [679]], ['3-wedge 2736', [2736]],
   ],
+  '(baby) flight': [
+    ['plain 983', [983]], ['wander 988', [988]], ['wander 997', [997]],
+    ['wander 1003', [1003]], ['ladder 1009', [1009]], ['ladder 1014', [1014]],
+    ['swoop 1019→1025', [1019, 1025]],
+    ['special 1038', [1038]], ['special 1065', [1065]], ['special 1107', [1107, 1065]],
+    ['special 1111', [1111]], ['special 1138 (mom+babies)', [1138]],
+    ['special 1154', [1154]], ['special 1173', [1173]], ['special 1192', [1192]],
+    ['mother 2391', [2391]], ['mother 2406', [2406]],
+  ],
+  '(baby) food': [
+    ['duck 3274', [3274]], ['duck wiggle 3279', [3279]], ['bottle 3286', [3286]],
+    ['pacifier 3291', [3291]], ['teddy 3296', [3296]], ['crib 3301', [3301]],
+  ],
 };
+
+const REVIEW_KEY = 'ftReviews';
+function loadReviews() {
+  try { return JSON.parse(localStorage.getItem(REVIEW_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveReviews(r) { localStorage.setItem(REVIEW_KEY, JSON.stringify(r)); }
 
 function buildDebug(saver) {
   let bar = document.getElementById('debugbar');
-  if (bar) { bar.remove(); saver.debugActor = null; return; }
+  if (bar) {
+    bar.remove();
+    const rp = document.getElementById('reviewpanel');
+    if (rp) rp.remove();
+    if (bar._keyHandler) window.removeEventListener('keydown', bar._keyHandler);
+    saver.setDebug(null);
+    return;
+  }
+  const reviews = loadReviews();
+
   bar = document.createElement('div');
   bar.id = 'debugbar';
   const title = document.createElement('div');
@@ -834,7 +851,15 @@ function buildDebug(saver) {
   auto.className = 'dbg-auto';
   auto.innerHTML = '<input type="checkbox" id="dbg-solo" checked> solo (pause the swarm)';
   bar.appendChild(auto);
+
+  const byNum = {};
   let n = 0;
+  const mark = (b, id) => {
+    const rv = reviews[id];
+    b.classList.toggle('rv-v', rv && rv.verdict === 'V');
+    b.classList.toggle('rv-x', rv && rv.verdict === 'X');
+    b.dataset.tag = rv && rv.verdict ? (rv.verdict === 'V' ? '✓' : '✗') : '';
+  };
   for (const [group, items] of Object.entries(DEBUG_CATALOG)) {
     const h = document.createElement('div');
     h.className = 'dbg-group';
@@ -842,14 +867,26 @@ function buildDebug(saver) {
     bar.appendChild(h);
     for (const [name, chain] of items) {
       n++;
+      const num = n;                             // capture per-iteration
+      const id = chain.join('-');                // stable per-act key
       const b = document.createElement('button');
-      b.innerHTML = `<span class="dbg-num">${n}</span>${name}`;
-      b.dataset.num = n;
+      b.dataset.num = num; b.dataset.id = id;
+      b.dataset.defname = name; b.dataset.group = group;
+      const render = () => {
+        const disp = (reviews[id] && reviews[id].name) || name;
+        b.innerHTML = `<span class="dbg-num">${num}</span>${disp}` +
+          `<span class="dbg-tag"></span>`;
+        mark(b, id);
+      };
+      render();
+      b._render = render;
+      byNum[n] = b;
       b.onclick = () => {
         saver.debugSolo = document.getElementById('dbg-solo').checked;
         saver.setDebug(new DebugActor(saver, chain));
-        bar.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+        bar.querySelectorAll('button[data-id]').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
+        showReview(b);
       };
       bar.appendChild(b);
     }
@@ -857,19 +894,86 @@ function buildDebug(saver) {
   const clear = document.createElement('button');
   clear.textContent = '✕ resume swarm';
   clear.className = 'dbg-clear';
-  clear.onclick = () => { saver.setDebug(null); bar.querySelectorAll('button').forEach(x => x.classList.remove('active')); };
+  clear.onclick = () => {
+    saver.setDebug(null);
+    bar.querySelectorAll('button[data-id]').forEach(x => x.classList.remove('active'));
+  };
   bar.appendChild(clear);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.textContent = '📋 copy all reviews (JSON)';
+  copyBtn.className = 'dbg-copy';
+  copyBtn.onclick = () => {
+    const out = [];
+    for (const [group, items] of Object.entries(DEBUG_CATALOG))
+      for (const [name, chain] of items) {
+        const id = chain.join('-');
+        const rv = reviews[id];
+        if (rv && (rv.verdict || rv.name || rv.notes))
+          out.push({ act: id, group, default_name: name,
+                     verdict: rv.verdict || null, name: rv.name || null,
+                     notes: rv.notes || null });
+      }
+    const json = JSON.stringify(out, null, 2);
+    navigator.clipboard.writeText(json).then(
+      () => { copyBtn.textContent = `✓ copied ${out.length} reviews`; setTimeout(() => copyBtn.textContent = '📋 copy all reviews (JSON)', 1500); },
+      () => { window.prompt('Copy manually:', json); });
+  };
+  bar.appendChild(copyBtn);
   document.body.appendChild(bar);
 
-  // type a number then Enter (or just the digits) to fire that button
+  // ---- review panel (bottom, under the canvas) ----
+  const rp = document.createElement('div');
+  rp.id = 'reviewpanel';
+  rp.innerHTML = `
+    <div class="rp-head"><span id="rp-title">select an act to review</span></div>
+    <div class="rp-body">
+      <div class="rp-row">
+        <button id="rp-v">✓ good</button>
+        <button id="rp-x">✗ bad</button>
+        <input id="rp-name" placeholder="rename this act…" />
+      </div>
+      <textarea id="rp-notes" placeholder="notes / what's wrong…" rows="3"></textarea>
+    </div>`;
+  document.body.appendChild(rp);
+
+  let current = null;                            // the active catalog button
+  function showReview(b) {
+    current = b;
+    const id = b.dataset.id;
+    const rv = reviews[id] || {};
+    document.getElementById('rp-title').textContent =
+      `#${b.dataset.num} · ${b.dataset.group} · ${b.dataset.defname} (${id})`;
+    document.getElementById('rp-name').value = rv.name || '';
+    document.getElementById('rp-notes').value = rv.notes || '';
+    document.getElementById('rp-v').classList.toggle('on', rv.verdict === 'V');
+    document.getElementById('rp-x').classList.toggle('on', rv.verdict === 'X');
+  }
+  function put(field, val) {
+    if (!current) return;
+    const id = current.dataset.id;
+    reviews[id] = reviews[id] || {};
+    reviews[id][field] = val;
+    saveReviews(reviews);
+    current._render();
+    current.classList.add('active');
+    if (field === 'verdict') showReview(current);
+  }
+  document.getElementById('rp-v').onclick = () =>
+    put('verdict', reviews[current && current.dataset.id]?.verdict === 'V' ? null : 'V');
+  document.getElementById('rp-x').onclick = () =>
+    put('verdict', reviews[current && current.dataset.id]?.verdict === 'X' ? null : 'X');
+  document.getElementById('rp-name').oninput = e => put('name', e.target.value.trim() || null);
+  document.getElementById('rp-notes').oninput = e => put('notes', e.target.value.trim() || null);
+  saver._showReview = showReview;
+
+  // type a number then Enter to fire that button
   let typed = '';
   bar._keyHandler = e => {
-    if (e.key >= '0' && e.key <= '9') { typed += e.key; }
-    else if (e.key === 'Enter' && typed) {
-      const b = bar.querySelector(`button[data-num="${typed}"]`);
-      if (b) b.click();
-      typed = '';
-    } else typed = '';
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key >= '0' && e.key <= '9') typed += e.key;
+    else if (e.key === 'Enter' && typed) { byNum[typed] && byNum[typed].click(); typed = ''; }
+    else typed = '';
   };
   window.addEventListener('keydown', bar._keyHandler);
 }
