@@ -834,14 +834,17 @@ function buildDebug(saver) {
   auto.className = 'dbg-auto';
   auto.innerHTML = '<input type="checkbox" id="dbg-solo" checked> solo (pause the swarm)';
   bar.appendChild(auto);
+  let n = 0;
   for (const [group, items] of Object.entries(DEBUG_CATALOG)) {
     const h = document.createElement('div');
     h.className = 'dbg-group';
     h.textContent = group;
     bar.appendChild(h);
     for (const [name, chain] of items) {
+      n++;
       const b = document.createElement('button');
-      b.textContent = name;
+      b.innerHTML = `<span class="dbg-num">${n}</span>${name}`;
+      b.dataset.num = n;
       b.onclick = () => {
         saver.debugSolo = document.getElementById('dbg-solo').checked;
         saver.setDebug(new DebugActor(saver, chain));
@@ -857,6 +860,18 @@ function buildDebug(saver) {
   clear.onclick = () => { saver.setDebug(null); bar.querySelectorAll('button').forEach(x => x.classList.remove('active')); };
   bar.appendChild(clear);
   document.body.appendChild(bar);
+
+  // type a number then Enter (or just the digits) to fire that button
+  let typed = '';
+  bar._keyHandler = e => {
+    if (e.key >= '0' && e.key <= '9') { typed += e.key; }
+    else if (e.key === 'Enter' && typed) {
+      const b = bar.querySelector(`button[data-num="${typed}"]`);
+      if (b) b.click();
+      typed = '';
+    } else typed = '';
+  };
+  window.addEventListener('keydown', bar._keyHandler);
 }
 
 boot();

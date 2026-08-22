@@ -112,6 +112,15 @@ html, body {
 }
 #debugbar button:hover { background: #34344a; }
 #debugbar button.active { background: #4a6a4a; border-color: #6a9b6a; color: #fff; }
+#debugbar .dbg-num {
+  display: inline-block;
+  min-width: 20px;
+  margin-right: 6px;
+  color: #7bb0e8;
+  font-weight: bold;
+  text-align: right;
+}
+#debugbar button.active .dbg-num { color: #cfe8cf; }
 #debugbar .dbg-clear { margin-top: 10px; background: #4a2a2a; }
 
 #loading {
