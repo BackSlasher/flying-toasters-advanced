@@ -137,6 +137,7 @@ def extract_handler(rva, end=None, limit=400):
     """
     out = []
     real80 = set()             # channels queued a REAL transform via NextSequences
+    nseq_lists = {}            # channel -> [full NextSequences label lists]
     polled = set()             # channels the handler polls with CountLoopsOutOfView
     onscreen = [False]         # handler polls the sprite-on-screen helper 0x417b57
     ONSCREEN_HELPER = base + 0x17b57
@@ -212,6 +213,22 @@ def extract_handler(rva, end=None, limit=400):
                         # tick until out of view); disperse 3/93 via 0x80 is not.
                         if off == '80' and im >= 0x100:
                             real80.add(ch)
+                    if off == '80':
+                        # NextSequences takes a full varargs label LIST: pushes are
+                        # (propLabel...) -1(term), labelN..label1(first), this. The
+                        # imms in ARG order are reverse-of-push; take up to the -1
+                        # terminator. Emitting only the first label truncates gags
+                        # (274/380/456 -> bare flight); keep the whole list.
+                        imms = [v for t, v in stack if t == 'imm']
+                        lst = []
+                        for a in reversed(imms):
+                            if a is None:
+                                continue
+                            if a < 0:
+                                break
+                            lst.append(a)
+                        if ch and len(lst) > 1:
+                            nseq_lists.setdefault(ch, []).append(lst)
             elif off == 'fc':                        # GetChannelRect(this, slot)
                 im = next((v for t, v in reversed(stack) if t == 'imm'), None)
                 if im is not None and 1 <= im <= 8:
@@ -239,7 +256,7 @@ def extract_handler(rva, end=None, limit=400):
             stack = []
         rva = nxt(rva)
         steps += 1
-    return out, real80, polled, onscreen[0]
+    return out, real80, polled, onscreen[0], nseq_lists
 
 
 def choreography():
@@ -257,7 +274,7 @@ def choreography():
                 continue
             h = disp[scen]
             nxt_h = next((a for a in hstarts if a > h), None)
-            ops, real80, polled, onscreen = extract_handler(h, end=nxt_h)
+            ops, real80, polled, onscreen, nseq_lists = extract_handler(h, end=nxt_h)
             chans = {}
             hold = {}                                # channels whose transform loops offscreen
             sounds = []
@@ -290,6 +307,31 @@ def choreography():
                     # keep one trailing disperse, don't collapse it away.
                     if not chans[ch] or chans[ch][-1] != val:
                         chans[ch].append(val)
+            # Recover full NextSequences choreography: the per-seq emission above
+            # kept only each 0x80 call's FIRST label, truncating whole-list gags
+            # (274/380/456 collapsed to bare flight). For each channel take its
+            # richest 0x80 list — collapsing the compiler's loop-unrolling (e.g.
+            # [..380,380,395..]) via consecutive-dedup — and adopt it when it is
+            # more complete than the flattened chain.
+            for ch, lists in nseq_lists.items():
+                best = []
+                for lst in lists:
+                    dd = []
+                    for v in lst:
+                        if not dd or dd[-1] != v:
+                            dd.append(v)
+                    if len(dd) > len(best):
+                        best = dd
+                # Adopt the full list ONLY when the channel's existing (flattened)
+                # content is a SUBSET of it — i.e. that content came solely from
+                # this NextSequences (274/380 truncated to their first label). If
+                # the channel has other real content from 0x7c calls (2736's
+                # formation body 324), the 0x80 list is a secondary phase, not the
+                # primary chain, so leave it — replacing would drop the body.
+                cur = chans.get(ch, [])
+                if len(best) > len(cur) and set(cur) <= set(best):
+                    chans[ch] = best
+
             # Signal B (driver-looped persistence): a channel that queued a real
             # transform via NextSequences AND polls CountLoopsOutOfView re-issues
             # that sequence every tick until the sprite drifts out of view (police
