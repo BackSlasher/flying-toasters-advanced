@@ -661,16 +661,50 @@ def config():
             continue
         end = next((a for a in hstarts if a > h), h + 60)
         cfg = {}
+        # Entry-lane band (+0x9c top lane, +0xa0 band size), parsed symbolically:
+        # gagobj +0x1c = total lanes, +0x2c = split threshold (both copied from
+        # the field at 0x178da). Handler forms observed:
+        #   mov [eax+0x9c], IMM                 -> top = IMM
+        #   mov edx,[eax+0x2c]; mov [0x9c],edx  -> top = split threshold
+        #   mov edx,[eax+0x1c]; sub edx,[0x9c]; add edx,-K; mov [0xa0],edx
+        #                                       -> band = total - top - K
+        # Unset -> full field (top 0, band total), the 0x1641e clamp defaults.
+        edx = None
         rva = h
         while rva in _ins and rva < end:
             ins = _ins[rva]
-            if ins.mnemonic == 'mov' and 'ptr [eax + 0x' in ins.op_str:
-                off = int(ins.op_str.split('[eax + 0x')[1].split(']')[0], 16)
+            m, o = ins.mnemonic, ins.op_str
+            if m == 'xor' and o == 'edx, edx':
+                edx = {'kind': 'zero'}
+            elif m == 'mov' and o.startswith('edx, dword ptr [eax + 0x'):
+                src = int(o.split('[eax + 0x')[1].split(']')[0], 16)
+                edx = {'kind': {0x1c: 'total', 0x2c: 'split'}.get(src)}
+            elif m == 'sub' and o == 'edx, dword ptr [eax + 0x9c]':
+                if edx and edx.get('kind') == 'total':
+                    edx = {'kind': 'total-top', 'k': 0}
+            elif m == 'add' and o.startswith('edx, ') and edx and edx.get('kind') == 'total-top':
+                k = imm(o.split(', ')[1])
+                if k is not None:
+                    edx['k'] = -k
+            elif m == 'mov' and 'ptr [eax + 0x' in o:
+                off = int(o.split('[eax + 0x')[1].split(']')[0], 16)
+                src = o.split(', ')[-1]
                 if off in FIELDS:
-                    v = imm(ins.op_str.split(', ')[-1])
+                    # `xor edx,edx; mov [..],edx` = an explicit 0 the imm parser
+                    # missed — split=0 scenarios were wrongly defaulting to 1.
+                    v = 0 if (src == 'edx' and edx and edx.get('kind') == 'zero') else imm(src)
                     if v is not None:
                         cfg[FIELDS[off]] = v
-            if ins.mnemonic == 'jmp':
+                elif off == 0x9c:
+                    if src == 'edx' and edx and edx.get('kind') == 'split':
+                        cfg['laneTop'] = 'split'
+                    else:
+                        v = imm(src)
+                        if v is not None:
+                            cfg['laneTop'] = v
+                elif off == 0xa0 and src == 'edx' and edx and edx.get('kind') == 'total-top':
+                    cfg['laneBandK'] = edx['k']   # band = total - top - K
+            if m == 'jmp':
                 break
             rva += ins.size
         if cfg:

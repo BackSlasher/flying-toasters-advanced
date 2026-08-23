@@ -495,7 +495,8 @@ class Actor {
 // "start card" frame when it exists (items = each toaster formed up); else the
 // channels stagger in from the entry band.
 class MultiGag {
-  constructor(sv, scen) {
+  constructor(sv, scen, opts = {}) {
+    this.noLanes = !!opts.noLanes;   // debug harness: place, never claim/fail
     this.sv = sv;
     this.kind = 'gag';
     this.scen = scen;
@@ -558,11 +559,65 @@ class MultiGag {
       // suppression fallback: drop the single-body fly-in subs; main IS the group
       order = order.filter(k => k === 'main' || playable(k).some(l => bodies(l) >= 2));
     }
-    // entry-lane geometry (engine fn 0x17378): lane<split enters along the TOP
-    // edge (x = baseX+(lane-split)*160+240, y = baseY-80); lane>=split enters
-    // along the RIGHT edge (x = baseX+80, y = baseY+(lane-split)*80).
-    const split = spec.cfg && spec.cfg.split != null ? spec.cfg.split : 1;
-    const baseX = DESIGN_W - 240, baseY = 60 + rand(90);
+    // ---- engine lane system (field init 0x416d0d + ctor 0x417113, placement
+    // 0x417378, occupancy 0x4174dc) ----
+    // The field divides an extended screen box (+160px margins each side) into
+    // discrete diagonal entry lanes: `split` of them enter along the TOP edge
+    // (x stepped by 160), the rest along the RIGHT edge (y stepped by 80).
+    //   w80 = ceil(W/80)+4;  h80 = ceil(H/80)+4
+    //   split = (w80-5)>>1;  total = h80+split-4       (640x480 -> 3+6 = 9 lanes)
+    // Each lane has a busy claim with a 25s stale timeout (0x61a8 ms). A gag
+    // needs cfg.lanes CONSECUTIVE free lanes (its footprint, offset by
+    // cfg.split); if occupied the spawn FAILS silently (engine sentinel 0xfc18)
+    // and the saver simply rolls again later — gags never overlap mid-air.
+    const lf = sv.laneField || (sv.laneField = (() => {
+      const w80 = Math.ceil(DESIGN_W / 80) + 4, h80 = Math.ceil(DESIGN_H / 80) + 4;
+      const s = (w80 - 5) >> 1;
+      return { split: s, total: h80 + s - 4, claim: [] };
+    })());
+    const laneFree = i => {
+      if (i < 0 || i >= lf.total) return true;          // out of range = free
+      if (lf.claim[i] && now() - lf.claim[i] > 25000) lf.claim[i] = 0;
+      return !lf.claim[i];
+    };
+    // Per-scenario entry band ([gag+0x9c] top lane, [gag+0xa0] band size),
+    // extracted as laneTop ('split' = the split threshold, i.e. right-edge
+    // lanes only — the police 1349) and laneBandK (band = total - top - K).
+    // The gag object is a SINGLETON, so a scenario without config REUSES the
+    // previous gag's band (engine stale-state; reproduced via sv._laneBand).
+    const c = spec.cfg || {};
+    if (c.laneTop !== undefined || c.laneBandK !== undefined)
+      sv._laneBand = { top: c.laneTop, bandK: c.laneBandK };
+    const bandCfg = sv._laneBand || {};
+    let laneTop = bandCfg.top === 'split' ? lf.split : (bandCfg.top || 0);
+    let laneBand = bandCfg.bandK != null ? lf.total - laneTop - bandCfg.bandK
+                                         : lf.total - laneTop;
+    // the 0x1641e clamp
+    if (laneTop > lf.total - 1) laneTop = lf.total - 1;
+    if (laneTop + laneBand > lf.total) laneBand = lf.total - laneTop;
+    if (laneTop < 0) laneTop = 0;
+    if (laneBand < 1) laneBand = 1;
+    const split = c.split != null ? c.split : 1;
+    const footprint = c.lanes || 1;
+    const lane = laneTop + rand(laneBand);              // RandShort within band
+    if (!this.noLanes) {
+      let laneOk = true;
+      for (let b = 0; b < footprint; b++) if (!laneFree(lane - split + b)) laneOk = false;
+      if (!laneOk) {                                    // engine: no spawn now
+        this.spawnFailed = true; this.dead = true; this.ch = [];
+        return;
+      }
+      this._lanes = [];
+      for (let b = 0; b < footprint; b++) {
+        const li = lane - split + b;
+        if (li >= 0 && li < lf.total) { lf.claim[li] = now(); this._lanes.push(li); }
+      }
+    }
+    // entry point per lane (0x173f4): top-edge lanes stagger x by 160 from the
+    // right base +240; right-edge lanes stagger y by 80 from the top.
+    const laneEntry = L => L < lf.split
+      ? [DESIGN_W + (L - lf.split) * 160 + 240, -80]
+      : [DESIGN_W + 80, (L - lf.split) * 80];
     const comp = sv.compound;
     const seqOf = l => comp.seqOf.get(l) || [l];
     const seqLen = l => seqOf(l).length;
@@ -678,8 +733,9 @@ class MultiGag {
         cy = offY + (r[1] + r[3]) / 2 + (tplFrame.dy || 0);
         p.placeCenter(cx, cy);
       } else {
-        cx = i < split ? baseX + (i - split) * 160 + 240 : baseX + 80;
-        cy = i < split ? baseY - 80 : baseY + (i - split) * 80;
+        // channel i enters at the i-th lane of the gag's claimed footprint
+        // (cfg.lanes consecutive lanes anchored cfg.split-in at `lane`)
+        [cx, cy] = laneEntry(lane - split + i);
         p.placeCenter(cx, cy);
       }
       if (this.mainX == null) { this.mainX = cx; this.mainY = cy; }
@@ -769,7 +825,14 @@ class MultiGag {
         else c.p.placeCenter((mb[0] + mb[2]) / 2, (mb[1] + mb[3]) / 2);
       }
     }
-    if (!alive) this.dead = true;
+    if (!alive) {
+      this.dead = true;
+      // release the gag's claimed lanes (engine helper 0x4174ad -> 0x417550)
+      if (this._lanes && this.sv.laneField) {
+        for (const li of this._lanes) this.sv.laneField.claim[li] = 0;
+        this._lanes = null;
+      }
+    }
   }
   draw(ctx) { for (const c of this.ch) if (!c.dead) c.p.draw(ctx, c.drawSlots); }
 }
@@ -968,6 +1031,8 @@ class Screensaver {
     this._lastSpawn = 0;
     this.lastCloud = -1e9; this.lastGag = -1e9;
     this.lastGagB = -1e9; this.lastGagC = -1e9;
+    if (this.laneField) this.laneField.claim = [];  // free all entry lanes
+    this._laneBand = null;
   }
 
   maxObjects() {
@@ -1013,7 +1078,10 @@ class Screensaver {
     if (roll === 0 && t > this.lastGagC + 15000) { fam = FAM_C; this.lastGagC = t; }
     else if (roll <= 1 && t > this.lastGagB + 6000) { fam = FAM_B; this.lastGagB = t; }
     else { fam = FAM_A; }
-    this.actors.push(new MultiGag(this, pick(fam)));
+    const g = new MultiGag(this, pick(fam));
+    // engine: when the gag's lane footprint is occupied the placement returns
+    // the 0xfc18 sentinel and nothing spawns — the saver just rolls again later
+    if (!g.spawnFailed) this.actors.push(g);
   }
 
   spawn() {
@@ -1541,7 +1609,7 @@ function buildDebug(saver) {
         // gags spawn the REAL MultiGag (auto-respawns for repeat viewing);
         // flight/food play via DebugActor. 'loop'/'act' keep cycling; 'once'
         // plays through then returns to plain flight (then replays for viewing).
-        const factory = isGag ? () => new MultiGag(saver, spec.g)
+        const factory = isGag ? () => new MultiGag(saver, spec.g, { noLanes: true })
                               : () => new DebugActor(saver, spec, kind !== 'once');
         saver.setDebug(factory);
         bar.querySelectorAll('button[data-id]').forEach(x => x.classList.remove('active'));

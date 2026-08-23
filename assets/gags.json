@@ -13,7 +13,9 @@
   "cfg": {
    "weight": 1,
    "lanes": 3,
-   "split": 2
+   "split": 2,
+   "laneTop": "split",
+   "laneBandK": 2
   }
  },
  "295": {
@@ -32,7 +34,9 @@
   "cfg": {
    "weight": 1,
    "lanes": 2,
-   "split": 1
+   "split": 1,
+   "laneTop": "split",
+   "laneBandK": 0
   }
  },
  "312": {
@@ -50,7 +54,9 @@
   },
   "cfg": {
    "weight": 1,
-   "lanes": 2
+   "lanes": 2,
+   "split": 0,
+   "laneTop": 2
   }
  },
  "329": {
@@ -69,7 +75,9 @@
   "cfg": {
    "weight": 1,
    "lanes": 2,
-   "split": 1
+   "split": 1,
+   "laneTop": "split",
+   "laneBandK": 3
   }
  },
  "380": {
@@ -88,7 +96,10 @@
   "sounds": [],
   "cfg": {
    "weight": 1,
-   "lanes": 2
+   "lanes": 2,
+   "split": 0,
+   "laneTop": 1,
+   "laneBandK": 2
   }
  },
  "456": {
@@ -108,7 +119,9 @@
   "cfg": {
    "weight": 1,
    "lanes": 3,
-   "split": 2
+   "split": 2,
+   "laneTop": "split",
+   "laneBandK": 2
   }
  },
  "558": {
@@ -124,7 +137,8 @@
   "sounds": [],
   "cfg": {
    "weight": 1,
-   "lanes": 3
+   "lanes": 3,
+   "split": 0
   }
  },
  "749": {
@@ -139,7 +153,9 @@
   "cfg": {
    "weight": 1,
    "lanes": 2,
-   "split": 1
+   "split": 1,
+   "laneTop": 2,
+   "laneBandK": 2
   }
  },
  "792": {
@@ -199,7 +215,10 @@
   },
   "cfg": {
    "weight": 1,
-   "lanes": 1
+   "lanes": 1,
+   "split": 0,
+   "laneTop": 2,
+   "laneBandK": 2
   }
  },
  "1782": {
@@ -225,7 +244,8 @@
   },
   "cfg": {
    "weight": 2,
-   "lanes": 3
+   "lanes": 3,
+   "split": 0
   }
  },
  "1928": {
@@ -389,6 +409,9 @@
   "cfg": {
    "weight": 2,
    "lanes": 3,
+   "split": 0,
+   "laneTop": "split",
+   "laneBandK": 4,
    "delay": 1000
   }
  },
@@ -416,6 +439,9 @@
   "cfg": {
    "weight": 2,
    "lanes": 3,
+   "split": 0,
+   "laneTop": "split",
+   "laneBandK": 4,
    "delay": 1000
   }
  },
@@ -437,6 +463,9 @@
   "cfg": {
    "weight": 2,
    "lanes": 5,
+   "split": 0,
+   "laneTop": 2,
+   "laneBandK": 6,
    "delay": 1000
   }
  },
@@ -648,6 +677,7 @@
   "cfg": {
    "weight": 2,
    "lanes": 1,
+   "split": 0,
    "delay": 1000
   }
  },
@@ -681,6 +711,7 @@
   "cfg": {
    "weight": 2,
    "lanes": 1,
+   "split": 0,
    "delay": 1000
   }
  }
