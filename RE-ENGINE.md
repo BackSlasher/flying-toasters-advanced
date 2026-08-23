@@ -391,3 +391,50 @@ phase order (still boot-patched, now grounded), and 295/312/329's `307`-lead + t
 (currently render the 307 lead only) for a future branch-aware (init-vs-ongoing via
 the `[ebx+0x38]` started flag) extraction pass. SFX table (#6) also open: a single
 PlayNoise (0x422fcf) scan misses the flag-armed cord 2421 / 679.
+**RESOLVED** by the state-machine interpreter (next section) for everything except
+1288 and the SFX table.
+
+## Queue semantics + formation templates (the deep dig's capstone)
+
+### The queue primitives (adxpl510)
+- vtbl+0x128 (@0x19df5) **SetNextSequence**: `[ch+0x48] = label`, arms `[ch+0x4b]`
+  (plus common-art alignment via 0x110/0xe0 + 0x114/0xe4 when `[ch+0x3c]` set).
+- vtbl+0x134 (@0x1ae17) **ClearPending**: `[ch+0x60] = -1`.
+- vtbl+0x138 (@0x1ae25) **AppendPending(label)**: 16-entry pending array at
+  `[ch+0x62]`, fill cursor via 0x130; appends + re-terminates with -1.
+
+Therefore:
+- **NextSequence(L)** (0x7c @0x19c82) = `next := L, pending := []` — REPLACE.
+- **NextSequences(L0..Ln)** (0x80 @0x19cbb) = `next := L0, pending := [L1..Ln]`.
+- Within one handler run, the LAST queue call on a channel wins entirely.
+- `[ch+0x4a]` (done) = the whole queue has drained; handlers manually clear it
+  after arming `[ch+0x4e]` loop counts to keep a looping state "busy". The driver
+  acts on a scenario handler when its channels go idle.
+
+### Handlers use the queue as SCRATCH
+274's init queues its act chain, calls PredictEndpoint, REPLACES with flight 93,
+measures CountLoopsOutOfView, then re-queues the act chain — the queue is a
+scratch register for predictive queries. Only the final state matters.
+
+### Formations are placement TEMPLATES, not playable sprites
+2736's init: `NextSequence(main, 2736)` → three `GetChannelRect(1/2/3)` reads →
+`NextSequences(main, 93,93,93,622,295)` which REPLACES 2736. **The formed
+multi-body sequence never plays.** It is queued momentarily so GetChannelRect can
+read its authored slot rects; each channel is SetCenterPoint'd onto its slot,
+then flies its own single-body chain. The wedge is three synchronized solo
+act-toasters (`[93,622,295,307] / [93,622,638] / [93,622,312,324]`), holding
+formation because they launch in formation and fly identical patterns. Same for
+879 (template 875), 946 (template 942), 2458 (template card; channels fly their
+own arc sequences 2473/2548/2611/2674). 2406 is different: its main genuinely
+plays the formed sequences (2391/2406) — the cooperative-draw path still applies.
+
+### The interpreter (tools/gagmap.py interp_handler)
+Simulates each handler as the re-entrant per-tick coroutine it is: evaluates
+phase-flag (`[ebx+off]`) and done (`[ch+0x4a]`) compares concretely, models
+replace-queue semantics, runs the handler only when active channels have drained,
+collapses loop cycles, and reports labels replaced-before-playing as `template`.
+Output: gags.json `chans` (execution order), `props`, `template`. Applied to all
+scenarios except the morph 1288 (its global 3-phase counter under-runs when
+RandShort collapses to 0; the port hand-models its verified arc). The port places
+template-slot channels at the template frame's authored rects (player.js tplRect)
+and lets each channel fly its chain.
