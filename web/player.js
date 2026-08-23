@@ -514,20 +514,20 @@ class MultiGag {
     this.weight = weight || 2;
     const spec = sv.gags[String(scen)];
     const order = ['main', 'sub1', 'sub2', 'sub3'].filter(k => spec.chans[k]);
-    const cardFrame = sv.compound.frame(String(scen));   // formation start card?
-    const slots = (cardFrame && cardFrame.items.length >= order.length) ? cardFrame.items : null;
-    const ox = DESIGN_W - 220 + rand(140), oy = -110 + rand(70);
+    this.weight = (spec.cfg && spec.cfg.weight) || this.weight;
+    // entry-lane geometry (engine fn 0x17378): lane<split enters along the TOP
+    // edge (x = baseX+(lane-split)*160+240, y = baseY-80); lane>=split enters
+    // along the RIGHT edge (x = baseX+80, y = baseY+(lane-split)*80).
+    const split = spec.cfg && spec.cfg.split != null ? spec.cfg.split : 1;
+    const baseX = DESIGN_W - 240, baseY = 60 + rand(90);
     this.ch = [];
     order.forEach((k, i) => {
       let chain = spec.chans[k].slice();
       if (chain.length > 1 && chain[0] === 93) chain = chain.slice(1);  // strip init disperse
       const p = new Player(sv.compound, sv.art);
       p.enter(chain[0]);
-      let cx, cy;
-      if (slots) {
-        const r = slots[Math.min(i, slots.length - 1)].rect;
-        cx = (r[0] + r[2]) / 2 + ox; cy = (r[1] + r[3]) / 2 + oy;
-      } else { cx = ox - i * 60; cy = oy + i * 55; }       // stagger when no card
+      const cx = i < split ? baseX + (i - split) * 160 + 240 : baseX + 80;
+      const cy = i < split ? baseY - 80 : baseY + (i - split) * 80;
       p.placeCenter(cx, cy);
       this.ch.push({ p, chain, ci: 0, dead: false });
     });

@@ -5,7 +5,12 @@
     93
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 3,
+   "split": 2
+  }
  },
  "295": {
   "chans": {
@@ -14,7 +19,12 @@
     93
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 2,
+   "split": 1
+  }
  },
  "312": {
   "chans": {
@@ -23,7 +33,11 @@
     93
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 2
+  }
  },
  "329": {
   "chans": {
@@ -32,7 +46,12 @@
     93
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 2,
+   "split": 1
+  }
  },
  "380": {
   "chans": {
@@ -40,7 +59,11 @@
     93
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 2
+  }
  },
  "456": {
   "chans": {
@@ -48,7 +71,12 @@
     93
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 3,
+   "split": 2
+  }
  },
  "558": {
   "chans": {
@@ -56,7 +84,11 @@
     93
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 3
+  }
  },
  "749": {
   "chans": {
@@ -64,7 +96,12 @@
     749
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 2,
+   "split": 1
+  }
  },
  "792": {
   "chans": {
@@ -78,7 +115,12 @@
     2969
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 2,
+   "split": 1
+  }
  },
  "807": {
   "chans": {
@@ -86,7 +128,12 @@
     93
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 2,
+   "split": 1
+  }
  },
  "861": {
   "chans": {
@@ -95,7 +142,11 @@
     846
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 1
+  }
  },
  "1782": {
   "chans": {
@@ -110,7 +161,11 @@
     2004
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 3
+  }
  },
  "1928": {
   "chans": {
@@ -125,7 +180,12 @@
     2004
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 2,
+   "split": 1
+  }
  },
  "679": {
   "chans": {
@@ -139,7 +199,13 @@
     679
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 1,
+   "lanes": 3,
+   "split": 2,
+   "delay": 1000
+  }
  },
  "879": {
   "chans": {
@@ -156,7 +222,13 @@
     875
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 3,
+   "split": 2,
+   "delay": 1000
+  }
  },
  "946": {
   "chans": {
@@ -172,7 +244,13 @@
     942
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 3,
+   "split": 2,
+   "delay": 1000
+  }
  },
  "1349": {
   "chans": {
@@ -180,7 +258,12 @@
     1349
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 3,
+   "delay": 1000
+  }
  },
  "1402": {
   "chans": {
@@ -195,7 +278,12 @@
     1402
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 3,
+   "delay": 1000
+  }
  },
  "1672": {
   "chans": {
@@ -204,7 +292,12 @@
     1672
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 5,
+   "delay": 1000
+  }
  },
  "2080": {
   "chans": {
@@ -219,7 +312,13 @@
     2080
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 4,
+   "split": 1,
+   "delay": 1000
+  }
  },
  "2421": {
   "chans": {
@@ -227,7 +326,13 @@
     2421
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 4,
+   "lanes": 4,
+   "split": 1,
+   "delay": 1000
+  }
  },
  "2458": {
   "chans": {
@@ -249,7 +354,13 @@
     2674
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 4,
+   "lanes": 4,
+   "split": 1,
+   "delay": 1000
+  }
  },
  "1288": {
   "chans": {
@@ -263,7 +374,12 @@
   "sounds": [
    22000,
    22000
-  ]
+  ],
+  "cfg": {
+   "weight": 1,
+   "lanes": 3,
+   "split": 1
+  }
  },
  "2272": {
   "chans": {
@@ -297,7 +413,12 @@
     2391
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 1,
+   "delay": 1000
+  }
  },
  "2406": {
   "chans": {
@@ -309,6 +430,11 @@
     2391
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "cfg": {
+   "weight": 2,
+   "lanes": 1,
+   "delay": 1000
+  }
  }
 }

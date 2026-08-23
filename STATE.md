@@ -134,3 +134,22 @@ Still open (need user eyes / bigger lifts):
   variants surfaced (jam = arts 330/331; not used by the free-food picker).
 - Audio playback unvalidated headless (needs real user gesture).
 - Wine side-by-side validation.
+
+## RE deep-dive session 2 (2026-08-23, cont.)
+
+Built `tools/gagmap.py` — recursive dispatch-tree walker + bounded handler
+extractor → `assets/gags.json` (complete per-scenario, per-channel gag
+choreography). Player now renders multi-toaster gags data-driven via `MultiGag`.
+
+Confirmed multi-channel gags: diamond 2458 (4ch), speeding/flip 946 (flip +
+speeding 520), police 679 (3ch), 1402/2080 (long orphans), toast-juggle 792
+(spawns food on sub), pairs 1782/1928. Full map in RE-ENGINE.md.
+
+### Remaining RE targets (in progress)
+- [x] Scenario config table (0x15bf1): weight/lanes/split/delay per scenario,
+      merged into gags.json (tools/gagmap.py config()).
+- [x] Entry placement (0x17378): lane<split=top edge, lane>=split=right edge
+      (x=baseX+(lane-split)*160+240 / baseX+80; y=baseY-80 / baseY+(lane-split)*80).
+      Wired into MultiGag — faithful formation geometry.
+- [ ] Phase-gate timing between channels (the per-boundary handshake).
+- [ ] Identify the conga (1402 candidate: 122f+130f companions) vs other formations.

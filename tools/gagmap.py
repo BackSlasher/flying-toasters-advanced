@@ -45,14 +45,15 @@ def imm(op):
         return None
 
 
-def walk_dispatch(entry, limit=400):
-    """Return {scenario: handler_rva}. Walks cmp/sub eax + je/jg/jl tree."""
+def walk_dispatch(entry, limit=400, reg='eax'):
+    """Return {scenario: handler_rva}. Walks cmp/sub REG + je/jg/jl tree."""
     out = {}
     seen = set()
+    cpfx, spfx = f'{reg}, 0x', f'{reg}, 0x'
 
     def walk(rva, acc):
-        # acc = total subtracted from eax on this path (eax = scenario - acc)
-        pending_cmp = None          # value from a `cmp eax, V` (absolute)
+        # acc = total subtracted from reg on this path (reg = scenario - acc)
+        pending_cmp = None          # value from a `cmp reg, V` (absolute)
         steps = 0
         while rva in _ins and steps < limit:
             if (rva, acc) in seen:
@@ -60,11 +61,11 @@ def walk_dispatch(entry, limit=400):
             seen.add((rva, acc))
             ins = _ins[rva]
             m, o = ins.mnemonic, ins.op_str
-            if m == 'cmp' and o.startswith('eax, 0x'):
+            if m == 'cmp' and o.startswith(cpfx):
                 pending_cmp = imm(o)
-            elif m == 'sub' and o.startswith('eax, 0x'):
-                acc += imm(o)          # eax mutated for fall-through
-                pending_cmp = 0        # a following je tests eax==0 -> scen==acc
+            elif m == 'sub' and o.startswith(spfx):
+                acc += imm(o)          # reg mutated for fall-through
+                pending_cmp = 0        # a following je tests reg==0 -> scen==acc
             elif m == 'je':
                 scen = (pending_cmp if pending_cmp else 0) + acc
                 tgt = imm(o) - base
@@ -78,7 +79,8 @@ def walk_dispatch(entry, limit=400):
             elif m == 'jmp':
                 rva = imm(o) - base
                 continue
-            elif m in ('push', 'call', 'ret') or (m == 'cmp' and 'ebx' in o):
+            elif (m in ('push', 'call', 'ret') or (m == 'cmp' and 'ebx' in o)
+                  or (m == 'mov' and 'ptr [' in o and reg not in o.split(',')[0])):
                 return                         # reached a handler / non-dispatch
             rva = nxt(rva)
             steps += 1
@@ -156,9 +158,42 @@ def choreography():
     return table
 
 
+def config():
+    """Per-scenario config from 0x15bf1: weight(+0xa4), lanes(+0x90),
+    split(+0x94), delay ms(+0xac)."""
+    FIELDS = {0xa4: 'weight', 0x90: 'lanes', 0x94: 'split', 0xac: 'delay'}
+    disp = walk_dispatch(0x15c1a, reg='edx')
+    hstarts = sorted(set(disp.values()))
+    out = {}
+    for scen, h in disp.items():
+        if not (0x100 <= scen <= 0xc00):
+            continue
+        end = next((a for a in hstarts if a > h), h + 60)
+        cfg = {}
+        rva = h
+        while rva in _ins and rva < end:
+            ins = _ins[rva]
+            if ins.mnemonic == 'mov' and 'ptr [eax + 0x' in ins.op_str:
+                off = int(ins.op_str.split('[eax + 0x')[1].split(']')[0], 16)
+                if off in FIELDS:
+                    v = imm(ins.op_str.split(', ')[-1])
+                    if v is not None:
+                        cfg[FIELDS[off]] = v
+            if ins.mnemonic == 'jmp':
+                break
+            rva += ins.size
+        if cfg:
+            out[scen] = cfg
+    return out
+
+
 def main():
     import json
     t = choreography()
+    cfg = config()
+    for scen, c in cfg.items():
+        if scen in t:
+            t[scen]['cfg'] = c
     for scen in sorted(t):
         c = t[scen]
         subs = [k for k in c['chans'] if k != 'main']
