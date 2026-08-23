@@ -703,6 +703,10 @@ class MultiGag {
       // three loops into view, 861 flies in before the bagel pops). Stripping
       // them (the old flattened-extraction cleanup) made every gag's opening
       // beat fire at the spawn edge, half off-screen.
+      // Randomized lead-in (hand-modeled chains only): leadIn = [base, span]
+      // prepends base + rand(span) flight loops per spawn (1288's RandShort).
+      if (k === 'main' && spec.leadIn)
+        chain = Array(spec.leadIn[0] + rand(spec.leadIn[1])).fill(3).concat(chain);
       // drop 1-frame "start card" layout markers (e.g. 2458/679) — the formation
       // TEMPLATE (one artch item per channel), not a playable actor.
       chain = chain.filter(l => seqLen(l) > 1);
@@ -1383,8 +1387,9 @@ async function boot() {
     // hand-modeled morph arc (see gagmap.py): the handler flies normal for
     // RandShort(4)+2 loops FIRST (so the morph happens mid-screen, not at the
     // entry edge), then morph-out, cruise futuristic 3x ([0x4e]=2), morph back.
-    // Fixed 4-loop lead-in stands in for the engine's random 3-6.
-    gags['1288'].chans = { main: [3, 3, 3, 3, 1233, 1288, 1288, 1288, 1303] };
+    // leadIn = [base, randSpan]: per-spawn flight loops = base + rand(span).
+    gags['1288'].chans = { main: [1233, 1288, 1288, 1288, 1303] };
+    gags['1288'].leadIn = [2, 4];
     delete gags['1288'].hold;
   }
   // BreakOffProp gags: props (807 -> golden toast 2974, 1672 -> rider 1734) come
