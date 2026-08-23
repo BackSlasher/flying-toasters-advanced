@@ -371,19 +371,33 @@ class ToasterActor {
   }
 
   pickerRoll() {
-    // Flight state machine (FlyingToaster handlers: kind1 @0x419198, kind2
-    // @0x418fc8, kind3/baby @0x188cf, dispatched on [ebx+0x40]=kind). At a
-    // flight-loop boundary the engine rolls RandShort(10) (0x422f51) and only
-    // breaks into a special act on 0 — ~10% — and even then only if an on-screen
-    // room check (0x419b0b/0x41987f) passes; otherwise it keeps cruising. This
-    // 10% gate is the extracted figure (was a ~66% guess, which made flight far
-    // too busy). The exact choice among a kind's acts lives in the s44/s48 launch
-    // state machine (not fully lifted); picked uniformly here.
-    const cruise = this.kind === 1 ? 3 : this.kind === 2 ? 93 : 983;
-    if (rand(10) !== 0) return cruise;                 // ~90%: keep cruising
-    if (this.kind === 1) return pick([33, 133, 172, 209, 602]);
-    if (this.kind === 2) return pick([638, 231, 252]);
-    return pick([988, 1014, 1009, 1019]);              // baby specials
+    // Flight-act PICKERS, fully lifted (kind1 @0x419dd4, kind2 @0x419e34,
+    // kind3 @0x419f14 — called at EVERY flight-loop boundary since plain
+    // flight keeps [ebx+0x48]=0). Exact engine distributions:
+    //   K1 RandShort(35): 1->133, 2->172, 3->209, 10..19->33, 20..29->602,
+    //                     else plain flight  (acts ~66% of boundaries!)
+    //   K2 RandShort(30): 2,3->231, 5,6->252, 10..19->638, else flight
+    //   K3 RandShort(80): 0->988, 1->1014, 2->1009, 3->1019, else 983
+    // (The earlier "10% act gate" was a misread of the loop-CONTINUATION roll
+    // inside the act blocks — 90% continue / 10% exit — which loopAct keeps.)
+    if (this.kind === 1) {
+      const r = rand(35);
+      if (r === 1) return 133;
+      if (r === 2) return 172;
+      if (r === 3) return 209;
+      if (r >= 10 && r <= 19) return 33;
+      if (r >= 20 && r <= 29) return 602;
+      return 3;
+    }
+    if (this.kind === 2) {
+      const r = rand(30);
+      if (r === 2 || r === 3) return 231;
+      if (r === 5 || r === 6) return 252;
+      if (r >= 10 && r <= 19) return 638;
+      return 93;
+    }
+    const r = rand(80);
+    return [988, 1014, 1009, 1019][r] || 983;          // r>3 -> plain baby flap
   }
 
   boundary() {
