@@ -662,15 +662,24 @@ class Screensaver {
     this.sfxCache = new Map();                    // wav id -> decoded AudioBuffer
     this.music = { buffer: null, src: null, startAt: 0, song: null };
     this.settings.music = false;
+    this.muted = true;        // master mute (silences without stopping playback)
     this.musicClock = 0;      // continuous timeline (ms), advances even muted
     this.introRunning = false;
   }
 
   audio() {
-    if (!this.audioCtx)
+    if (!this.audioCtx) {
       this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      this.masterGain = this.audioCtx.createGain();
+      this.masterGain.gain.value = this.muted ? 0 : 1;   // master mute node
+      this.masterGain.connect(this.audioCtx.destination);
+    }
     if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
     return this.audioCtx;
+  }
+  setMuted(m) {
+    this.muted = m;
+    if (this.masterGain) this.masterGain.gain.value = m ? 0 : 1;
   }
 
   maxObjects() {
@@ -746,12 +755,12 @@ class Screensaver {
 
   // WAV id -> decoded buffer -> play. Gag SFX per RE-ENGINE.md sound map.
   playSound(id, gain = 1) {
-    if (!this.settings.sound || !this.sounds[id]) return;
+    if (this.muted || !this.settings.sound || !this.sounds[id]) return;
     const ctx = this.audio();
     const fire = buf => {
       const s = ctx.createBufferSource(); s.buffer = buf;
       const g = ctx.createGain(); g.gain.value = gain;
-      s.connect(g); g.connect(ctx.destination); s.start();
+      s.connect(g); g.connect(this.masterGain); s.start();
     };
     const cached = this.sfxCache.get(id);
     if (cached) return fire(cached);
@@ -769,7 +778,7 @@ class Screensaver {
     const offset = (this.musicClock / 1000) % buf.duration;   // join at timeline
     const s = ctx.createBufferSource();
     s.buffer = buf; s.loop = true;
-    s.connect(ctx.destination); s.start(0, offset);
+    s.connect(this.masterGain); s.start(0, offset);
     // startAt is the virtual time at which the song's 0 would have played, so
     // musicMs() keeps returning the timeline position.
     this.music.src = s; this.music.startAt = ctx.currentTime - offset;
@@ -993,19 +1002,23 @@ async function boot() {
   // WebAudio (browsers block autoplay on load). Turns music + SFX on together.
   const soundBtn = document.getElementById('sound-btn');
   function reflectSound() {
-    const on = saver.settings.music || saver.settings.sound;
+    const on = !saver.muted;
     soundBtn.textContent = on ? '🔊 sound on' : '🔇 sound off';
     soundBtn.classList.toggle('on', on);
     document.getElementById('music').checked = saver.settings.music;
     document.getElementById('sound').checked = saver.settings.sound;
   }
+  // master mute toggle: unmuting starts the music once (at the current timeline
+  // offset) and thereafter only flips the master gain — no stop/restart.
   soundBtn.onclick = () => {
-    const on = !(saver.settings.music || saver.settings.sound);
-    saver.audio();                               // unlock on this gesture
-    if (saver.audioCtx) saver.audioCtx.resume();
-    saver.settings.music = on;
-    saver.settings.sound = on;
-    syncMusic();
+    saver.audio();                               // unlock + build masterGain
+    const turnOn = saver.muted;
+    saver.setMuted(!turnOn);
+    if (turnOn) {
+      saver.settings.sound = true;
+      saver.settings.music = true;
+      if (!saver.music.src) syncMusic();         // start once, seeks to offset
+    }
     reflectSound();
   };
   reflectSound();
