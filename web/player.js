@@ -657,14 +657,19 @@ class MultiGag {
     if (SCEN_SFX[scen]) sv.playSound(SCEN_SFX[scen]);   // cord/fire/police/morph
   }
   _splitProps() {
-    // spawn each pending prop at the main toaster's current center
+    // Engine Split (chan vtbl 0xc8 -> the copy helper 0xdc): the broken-off prop
+    // INHERITS the main toaster's transform origin (fields [+0x40]/[+0x44]), it is
+    // not re-centered. Copying the origin lets the prop's OWN authored frame offset
+    // place it exactly where the split frame drew it (the toast at the toaster's
+    // slot), which preserves the ejection lane. placeCenter'ing the prop on main's
+    // bounds-center instead discarded that offset and tossed the toast in the wrong
+    // lane — the debug-menu bug flagged for 807.
     const m = this.mainCh;
-    const b = m ? m.p.bounds() : [this.mainX, this.mainY, this.mainX, this.mainY];
-    const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
     for (const pl of this.pendingProps) {
       const p = new Player(this.sv.compound, this.sv.art, this.sv);
       p.enter(pl);
-      p.placeCenter(cx, cy);
+      if (m) { p.ox = m.p.ox; p.oy = m.p.oy; }
+      else p.placeCenter(this.mainX, this.mainY);
       // the prop keeps its OWN sequence (a toast tumbles/drifts as a toast) —
       // it drifts off on its own; no flight-flap append (that flapped the toast).
       this.ch.push({ p, chain: [pl], ci: 0, dead: false });
