@@ -179,8 +179,10 @@ const GAG_C = [[2421, 4], [2736, 1], [2910, 1], [1672, 2],
 const GAG_CHAINS = {
   // 913 (not 912) so the persist loop skips seq 912's bagel-less link frame
   // (f912=[body] only) that caused a 1-frame no-bagel flicker each loop.
-  878: { chain: [912], persist: 913 },           // bagel act -> bagel-cruise forever
-  1232: { chain: [1287, 1287, 1303], persist: null }, // morph -> futuristic -> back -> 93
+  878: { chain: [913], persist: 913 },           // bagel act -> bagel-cruise forever
+  // 1288 (not 1287): 1287's first frame (art 500) duplicates its last, causing
+  // a 2-same-frames hiccup on loop; entering at 1288 skips that link frame.
+  1232: { chain: [1288, 1288, 1303], persist: null }, // morph -> futuristic -> back -> 93
 };
 
 
@@ -955,12 +957,13 @@ const DEBUG_CATALOG = {
   ],
   'Transforms (persistent chains)': [
     // RE-ENGINE.md: these chain to a follow-on that PERSISTS until offscreen.
-    ['bagel-eyes FULL (878→912)', [878, 912, 912, 912]],
-    ['bagel-cruise only (912)', [912]],
+    // Loops enter at runStart+1 to skip the link frame (avoids debug flicker).
+    ['bagel-eyes FULL (878→913)', [878, 913, 913, 913]],
+    ['bagel-cruise only (913)', [913]],
     ['coil glow 945 (=mega 946)', [945]],
     ['TOAST POP 748 (juggle→pop)', [748]],
-    ['MORPH evolution (1232→1287→1302)', [1232, 1287, 1287, 1302, 3]],
-    ['futuristic cruise (1287)', [1287]],
+    ['MORPH evolution (1232→1288→1303)', [1232, 1288, 1288, 1303, 3]],
+    ['futuristic cruise (1288)', [1288]],
     ['morph forward only (1232)', [1232]],
   ],
   'Food': [
@@ -968,7 +971,7 @@ const DEBUG_CATALOG = {
     ['waffle (3019)', [3019]], ['golden toast (3002)', [3002]],
     ['brown bread (2997)', [2997]], ['brown bread moving (2979)', [2979]],
     ['static toast (2969)', [2969]], ['static golden (2974)', [2974]],
-    ['jam toast? (330/331)', [329]],
+    ['jam toast juggle (1371)', [1371]],   // jam arts 330/331 only appear in gags
   ],
   'Sky': [
     // clouds were all art 463; these 4 labels hit the 4 distinct shapes
