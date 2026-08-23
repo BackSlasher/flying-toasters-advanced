@@ -498,58 +498,59 @@ class Actor {
   draw(ctx) { this.p.draw(ctx); }
 }
 
-// ---------------------------------------------------- multi-toaster formations
-// The formation gags store each toaster as a SEPARATE sub-sequence (found via
-// orphan analysis). The 1-frame "start card" shows all toasters already formed
-// up — its item rects give each sub-toaster's start position. We spawn one
-// sub-player per slot at that position, each playing its own choreography, then
-// dispersing to plain flight. Positions/pairing are approximated from the data
-// (exact per-channel timing lives in the ~13KB glue driver).
-// engine queues these sub-sequences (runStart+1, skips link frames) per glue
-const FORMATIONS = {
-  2458: [2474, 2549, 2612, 2675],   // diamond (4 toasters)
-  1782: [1786, 1852],               // pair formation (glue 0x10fc6)
-  1928: [1933, 2004],               // pair variant
-};
+// ---------------------------------------------------- multi-toaster gags
+// Data-driven from assets/gags.json (tools/gagmap.py — the extracted per-scenario,
+// per-channel choreography). Each channel is a toaster playing a sequence chain,
+// then dispersing to plain flight. Start positions come from the scenario's
+// "start card" frame when it exists (items = each toaster formed up); else the
+// channels stagger in from the entry band.
+const MULTI_GAGS = [2458, 946, 679, 1402, 2080, 792, 1782, 1928];
 
-class FormationGag {
-  constructor(sv, card) {
+class MultiGag {
+  constructor(sv, scen, weight) {
     this.sv = sv;
-    this.kind = 'formation';
+    this.kind = 'gag';
     this.dead = false;
-    this.weight = 2;
-    const subs = FORMATIONS[card];
-    const slots = sv.compound.frame(String(card)).items;
-    // common entry offset: drop the whole formation in from the top-right band
-    const ox = DESIGN_W - 200 + rand(120), oy = -120 + rand(80);
-    this.subs = [];
-    for (let i = 0; i < subs.length; i++) {
+    this.weight = weight || 2;
+    const spec = sv.gags[String(scen)];
+    const order = ['main', 'sub1', 'sub2', 'sub3'].filter(k => spec.chans[k]);
+    const cardFrame = sv.compound.frame(String(scen));   // formation start card?
+    const slots = (cardFrame && cardFrame.items.length >= order.length) ? cardFrame.items : null;
+    const ox = DESIGN_W - 220 + rand(140), oy = -110 + rand(70);
+    this.ch = [];
+    order.forEach((k, i) => {
+      let chain = spec.chans[k].slice();
+      if (chain.length > 1 && chain[0] === 93) chain = chain.slice(1);  // strip init disperse
       const p = new Player(sv.compound, sv.art);
-      const label = subs[i];
-      p.enter(label);
-      // place this sub at its slot position (card rect center) + entry offset
-      const slot = slots[Math.min(i, slots.length - 1)].rect;
-      p.placeCenter((slot[0] + slot[2]) / 2 + ox, (slot[1] + slot[3]) / 2 + oy);
-      this.subs.push({ p, label, done: false });
-    }
+      p.enter(chain[0]);
+      let cx, cy;
+      if (slots) {
+        const r = slots[Math.min(i, slots.length - 1)].rect;
+        cx = (r[0] + r[2]) / 2 + ox; cy = (r[1] + r[3]) / 2 + oy;
+      } else { cx = ox - i * 60; cy = oy + i * 55; }       // stagger when no card
+      p.placeCenter(cx, cy);
+      this.ch.push({ p, chain, ci: 0, dead: false });
+    });
     sv.playSound(22010);
+    (spec.sounds || []).forEach(s => sv.playSound(s));
   }
   tick() {
     let alive = 0;
-    for (const s of this.subs) {
-      if (s.done) continue;
-      if (s.p.tick() === 'end') {
-        if (s.p.offscreen()) { s.done = true; continue; }
-        s.p.enter(93);                 // choreography done -> disperse
-        s.label = 93;
+    for (const c of this.ch) {
+      if (c.dead) continue;
+      if (c.p.tick() === 'end') {
+        c.ci++;
+        if (c.ci < c.chain.length) c.p.enter(c.chain[c.ci]);
+        else if (c.p.offscreen()) { c.dead = true; continue; }
+        else c.p.enter(93);                 // choreography done -> disperse
       }
-      if (s.p.offscreen(40) && (s._arr || (s._age = (s._age || 0) + 1) > 200)) s.done = true;
-      if (!s.p.offscreen(0)) s._arr = true;
-      if (!s.done) alive++;
+      if (!c.p.offscreen(0)) c._arr = true;
+      if (c.p.offscreen(40) && (c._arr || (c._age = (c._age || 0) + 1) > 250)) c.dead = true;
+      if (!c.dead) alive++;
     }
     if (!alive) this.dead = true;
   }
-  draw(ctx) { for (const s of this.subs) if (!s.done) s.p.draw(ctx); }
+  draw(ctx) { for (const c of this.ch) if (!c.dead) c.p.draw(ctx); }
 }
 
 // ------------------------------------------------------------- debug harness
@@ -738,9 +739,11 @@ class Screensaver {
 
   spawnGag() {
     const t = now();
-    // ~1 in 4 gags is a multi-toaster formation (family-A)
-    if (rand(4) === 0) {
-      this.actors.push(new FormationGag(this, +pick(Object.keys(FORMATIONS))));
+    // ~1 in 3 gags is a multi-toaster gag (diamond/police/speeding/pairs),
+    // driven straight from gags.json
+    if (rand(3) === 0) {
+      const scen = pick(MULTI_GAGS.filter(s => this.gags[String(s)]));
+      this.actors.push(new MultiGag(this, scen));
       return;
     }
     const roll = rand(3);
@@ -863,11 +866,12 @@ class Screensaver {
 
 // -------------------------------------------------------------------- boot
 async function boot() {
-  const [banksMeta, comp22000, comp22100, karaokeTables] = await Promise.all([
+  const [banksMeta, comp22000, comp22100, karaokeTables, gags] = await Promise.all([
     loadJSON(`${ASSETS}/sprites/banks.json`),
     loadJSON(`${ASSETS}/compound_22000.json`),
     loadJSON(`${ASSETS}/compound_22100.json`),
     loadJSON(`${ASSETS}/karaoke.json`),
+    loadJSON(`${ASSETS}/gags.json`),
   ]);
   const ids = Object.keys(banksMeta).map(Number);
   const art = new ArtIndex(), karArt = new ArtIndex();
@@ -881,11 +885,13 @@ async function boot() {
       .then(b => { sounds[id] = b; }).catch(() => {});
   }
 
+  // parser limitation: 1782/1928 share a handler; fix 1782's companion labels
+  if (gags['1782']) gags['1782'].chans = { main: [1786], sub1: [1786], sub2: [1852] };
   const saver = new Screensaver({
     art, karArt,
     compound: new Compound(comp22000),
     karCompound: new Compound(comp22100),
-    banksMeta, karaokeTables, sounds,
+    banksMeta, karaokeTables, sounds, gags,
   });
   window.saver = saver;                          // debug hook
 
