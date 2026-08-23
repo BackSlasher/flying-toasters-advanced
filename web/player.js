@@ -498,6 +498,59 @@ class Actor {
   draw(ctx) { this.p.draw(ctx); }
 }
 
+// ---------------------------------------------------- multi-toaster formations
+// The formation gags store each toaster as a SEPARATE sub-sequence (found via
+// orphan analysis). The 1-frame "start card" shows all toasters already formed
+// up — its item rects give each sub-toaster's start position. We spawn one
+// sub-player per slot at that position, each playing its own choreography, then
+// dispersing to plain flight. Positions/pairing are approximated from the data
+// (exact per-channel timing lives in the ~13KB glue driver).
+const FORMATIONS = {
+  2458: [2473, 2548, 2611, 2674],   // diamond (4 toasters)
+  1782: [1785, 1851],               // pair formation
+  1928: [1932, 2003],               // pair variant
+};
+
+class FormationGag {
+  constructor(sv, card) {
+    this.sv = sv;
+    this.kind = 'formation';
+    this.dead = false;
+    this.weight = 2;
+    const subs = FORMATIONS[card];
+    const slots = sv.compound.frame(String(card)).items;
+    // common entry offset: drop the whole formation in from the top-right band
+    const ox = DESIGN_W - 200 + rand(120), oy = -120 + rand(80);
+    this.subs = [];
+    for (let i = 0; i < subs.length; i++) {
+      const p = new Player(sv.compound, sv.art);
+      const label = subs[i];
+      p.enter(label);
+      // place this sub at its slot position (card rect center) + entry offset
+      const slot = slots[Math.min(i, slots.length - 1)].rect;
+      p.placeCenter((slot[0] + slot[2]) / 2 + ox, (slot[1] + slot[3]) / 2 + oy);
+      this.subs.push({ p, label, done: false });
+    }
+    sv.playSound(22010);
+  }
+  tick() {
+    let alive = 0;
+    for (const s of this.subs) {
+      if (s.done) continue;
+      if (s.p.tick() === 'end') {
+        if (s.p.offscreen()) { s.done = true; continue; }
+        s.p.enter(93);                 // choreography done -> disperse
+        s.label = 93;
+      }
+      if (s.p.offscreen(40) && (s._arr || (s._age = (s._age || 0) + 1) > 200)) s.done = true;
+      if (!s.p.offscreen(0)) s._arr = true;
+      if (!s.done) alive++;
+    }
+    if (!alive) this.dead = true;
+  }
+  draw(ctx) { for (const s of this.subs) if (!s.done) s.p.draw(ctx); }
+}
+
 // ------------------------------------------------------------- debug harness
 // Plays ONE labeled chain, isolated, looping in place so an act can be judged.
 // startAt = fraction down the entry lane so it drifts across the middle.
@@ -684,11 +737,16 @@ class Screensaver {
 
   spawnGag() {
     const t = now();
+    // ~1 in 4 gags is a multi-toaster formation (family-A)
+    if (rand(4) === 0) {
+      this.actors.push(new FormationGag(this, +pick(Object.keys(FORMATIONS))));
+      return;
+    }
     const roll = rand(3);
     let table = null;
     if (roll === 0 && t > this.lastGagC + 15000) { table = GAG_C; this.lastGagC = t; }
     else if (roll <= 1 && t > this.lastGagB + 6000) { table = GAG_B; this.lastGagB = t; }
-    else { table = GAG_B; this.lastGagB = t; }    // family A pending -> B
+    else { table = GAG_B; this.lastGagB = t; }
     this.actors.push(new Actor(this, 'gag', pick(table)));
   }
 
