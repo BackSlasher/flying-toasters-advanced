@@ -10,18 +10,17 @@
 <div id="stage-wrap">
   <canvas id="stage" width="640" height="480"></canvas>
 </div>
-<button id="sound-btn" title="Sound / music">🔇 sound off</button>
-<button id="menu-btn" title="Settings">☰ menu</button>
-<div id="identify" class="hidden"></div>
+<div id="topbar">
+  <button id="menu-btn" title="Settings">☰ menu</button>
+  <button id="music-btn" title="Music">🎵 music</button>
+  <button id="sfx-btn" title="Sound effects">🔈 sfx</button>
+  <button id="karaoke-btn" title="Karaoke lyrics">🎤 karaoke</button>
+</div>
+<div id="identify" class="hidden"><span id="id-text"></span><button id="id-copy" class="hidden">copy</button><button id="id-close" title="close">✕</button></div>
 <div id="panel" class="hidden">
   <h1>Flying Toasters!</h1>
-  <label>Objects:
-    <select id="objects">
-      <option value="0">Flight</option>
-      <option value="25">Squadron</option>
-      <option value="50" selected>Air Wing</option>
-      <option value="75">Swarm</option>
-    </select>
+  <label>Density: <span id="objects-label">Air Wing</span>
+    <input type="range" id="objects" min="0" max="3" step="1" value="2" class="slider">
   </label>
   <label>Toasters:
     <select id="toasters">
@@ -30,9 +29,6 @@
       <option value="2">Random</option>
     </select>
   </label>
-  <label><input type="checkbox" id="karaoke"> Display Karaoke</label>
-  <label><input type="checkbox" id="music"> Music</label>
-  <label><input type="checkbox" id="sound"> Sound effects</label>
   <div class="row">
     <button id="intro-btn">Play intro</button>
     <button id="debug-btn">Debug…</button>

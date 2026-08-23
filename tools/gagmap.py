@@ -88,16 +88,32 @@ def walk_dispatch(entry, limit=400, reg='eax'):
     return out
 
 
-def extract_handler(rva, end=None, limit=400):
-    """Linear sweep a handler; return list of (channel, label|'disp'|sound).
+def pushimm(o):
+    """Value of a `push IMM` operand. capstone renders small immediates in
+    DECIMAL (`push 3`) and larger ones in hex (`push 0x318`); handle both."""
+    o = o.strip()
+    try:
+        return int(o, 16) if o.startswith('0x') else int(o)
+    except ValueError:
+        return None
 
-    Bounded by `end` (start of the next handler) so we don't bleed into the
-    following scenario's code, and by the tail-jump to the shared epilogue.
+
+# vtbl sequence-queue methods: 0x7c QueueSequence + 0x80 (its sibling; ~46 call
+# sites, 21 with labels — e.g. 1349's police car main=675 is queued ONLY via
+# 0x80, so 0x7c-only extraction dropped whole channels). 0xc8 = BreakOffProp.
+QUEUE = ('7c', '80')
+
+
+def extract_handler(rva, end=None, limit=400):
+    """Linear sweep a handler; return list of (channel, label, kind).
+
+    Uses a per-call push stack: the channel is the last `[ebx+off]` pushed and
+    the label the last immediate pushed before the vtbl call (matches the
+    cdecl arg order). Bounded by `end` (next handler) and the tail-jump.
     """
     out = []
+    stack = []
     eax = None
-    pch = None
-    pim = None
     steps = 0
     while rva in _ins and steps < limit:
         if end is not None and rva >= end:
@@ -114,18 +130,33 @@ def extract_handler(rva, end=None, limit=400):
             eax += imm(o)
         elif m == 'push':
             if o == 'eax':
-                pim = eax
-            elif o.startswith('0x'):
-                pim = imm(o)
+                stack.append(('imm', eax))
             elif 'ptr [ebx + 0x' in o:
                 off = int(o.split('[ebx + 0x')[1].split(']')[0], 16)
-                if off in CH:
-                    pch = CH[off]
-        elif m == 'call' and '[eax + 0x7c]' in o:          # QueueSequence
-            if pim is not None and pch:
-                kind = 'snd' if 0x5500 < pim < 0x5600 else 'seq'
-                out.append((pch, pim, kind))
-            pim = None
+                stack.append(('ch', CH.get(off)))
+            else:
+                v = pushimm(o)
+                stack.append(('imm', v) if v is not None else ('?', None))
+        elif m == 'call' and 'ptr [eax + 0x' in o:
+            off = o.split('[eax + 0x')[1].split(']')[0]
+            if off in QUEUE:
+                ch = next((v for t, v in reversed(stack) if t == 'ch'), None)
+                im = next((v for t, v in reversed(stack) if t == 'imm'), None)
+                if ch and im is not None:
+                    if 0x5500 < im < 0x5600:
+                        out.append((ch, im, 'snd'))
+                    # keep real labels + the disperse markers (3, 93); drop the
+                    # tiny control args (0/1/6 = flags/counts, not sequences)
+                    elif im >= 0x100 or im in (3, 93):
+                        out.append((ch, im, 'seq'))
+            elif off == 'fc':                        # GetChannelRect(this, slot)
+                im = next((v for t, v in reversed(stack) if t == 'imm'), None)
+                if im is not None and 1 <= im <= 8:
+                    out.append(('main', im, 'getrect'))
+            elif off == '98':                        # SetCenterPoint(this, ...)
+                ch = next((v for t, v in reversed(stack) if t == 'ch'), None)
+                out.append((ch, None, 'setcenter'))
+            stack = []
         rva = nxt(rva)
         steps += 1
     return out
@@ -138,23 +169,48 @@ def choreography():
         disp = walk_dispatch(entry)
         hstarts = sorted(set(disp.values()))
         for scen in sorted(disp):
-            if not (0x100 <= scen <= 0xa00):
+            # scenario-label range. Ceiling is 0xc00 (not 0xa00): family-C gags
+            # 2736 (0xab0) and 2910 (0xb5e) live above 0xa00 and were being
+            # dropped — that's why the 3-toaster wedge/finale fell back to a
+            # single toaster.
+            if not (0x100 <= scen <= 0xc00):
                 continue
             h = disp[scen]
             nxt_h = next((a for a in hstarts if a > h), None)
             ops = extract_handler(h, end=nxt_h)
             chans = {}
             sounds = []
+            getrects = []                            # GetChannelRect slots, in order
+            setcenters = []                          # SetCenterPoint channels, in order
             for ch, val, kind in ops:
                 if kind == 'snd':
                     sounds.append(val - 0x55f0 + 22000)
+                elif kind == 'getrect':
+                    getrects.append(val)
+                elif kind == 'setcenter':
+                    setcenters.append(ch)
                 else:
                     chans.setdefault(ch, [])
-                    # skip pure disperse (93/3) duplicates; keep order, dedup
+                    # keep order, dedup consecutive. The trailing disperse (3/93)
+                    # is SIGNIFICANT — a real sequence followed by a disperse loops
+                    # until it drifts out of view (CountLoopsOutOfView) then resumes
+                    # flight; a real sequence with none after it plays once — so
+                    # keep one trailing disperse, don't collapse it away.
                     if not chans[ch] or chans[ch][-1] != val:
                         chans[ch].append(val)
             if chans:
-                table[scen] = {'chans': chans, 'sounds': sounds}
+                e = {'chans': chans, 'sounds': sounds}
+                # Formation assembly: GetChannelRect(slot) results are consumed by
+                # SetCenterPoint(channel) calls positionally — pair them to learn
+                # which body-slot of the main's formed sequence each channel snaps
+                # onto (2736: main/sub1/sub2 -> slots 1/2/3; 2406: sub1 -> slot 4).
+                slots = {}
+                for ch, slot in zip(setcenters, getrects):
+                    if ch and ch not in slots:
+                        slots[ch] = slot
+                if slots:
+                    e['slots'] = slots
+                table[scen] = e
     return table
 
 
@@ -187,6 +243,29 @@ def config():
     return out
 
 
+def soundmap():
+    """label -> WAV id, bound in ToasterControl::IToasterControl (0x1ce51) via
+    the art-registration call 0x41694a(chan, label, sound, ...). The engine fires
+    the sound when that compound sequence plays."""
+    insns = list(md.disasm(data[0x1ce51:0x1ce51 + 0x600], base + 0x1ce51))
+    out = {}
+    pushes = []
+    for ins in insns:
+        if ins.mnemonic == 'push':
+            pushes.append(imm(ins.op_str) if ins.op_str.startswith('0x') else None)
+        elif ins.mnemonic == 'call':
+            if ins.op_str.endswith('41694a'):
+                w = pushes[-7:]
+                snd = next((v for v in w if v and 0x55f0 <= v <= 0x5600), None)
+                if snd:
+                    j = w.index(snd)
+                    lab = w[j + 1] if j + 1 < len(w) else None
+                    if lab and 0 < lab < 0xc00:
+                        out.setdefault(lab, snd - 0x55f0 + 22000)
+            pushes = []
+    return out
+
+
 def main():
     import json
     t = choreography()
@@ -204,7 +283,9 @@ def main():
         print(f'  {scen:5} (0x{scen:x}): ' + ', '.join(parts) + tag)
     if '--json' in sys.argv:
         open('assets/gags.json', 'w').write(json.dumps(t, indent=1))
-        print('\nwrote assets/gags.json')
+        sm = soundmap()
+        open('assets/soundmap.json', 'w').write(json.dumps(sm))
+        print(f'\nwrote assets/gags.json and assets/soundmap.json ({len(sm)} sound bindings)')
 
 
 if __name__ == '__main__':

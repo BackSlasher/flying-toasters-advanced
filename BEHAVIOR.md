@@ -61,11 +61,20 @@ Screen positions accumulate across sequence links (starting rect randomized at
 spawn; sequence starter fns 0x1a276/0x1a3ea place via `MoveTo` with `RandShort`
 spreads, e.g. label 0x453: x+40, y+200+RandShort(spread)).
 
-**Flight state machine** (FlyingToaster handler 0x188cf): dispatch on current
-sequence label. Heading ladder: labels 0x3F1 ↔ 0x3F6 ↔ 0x3FB ↔ 0x401 (climb…dive
-variants; default flight = 0x3D7, alt start = 0x5D=93, kind 3 start = specials).
-At loop boundaries roll `RandShort(10)`: on 0 (10%) queue a transition to the
-adjacent heading (guarded by IsSequenceQueued 0x41987f / QueueSequence 0x419cc1).
+**Flight state machine** (FlyingToaster handler 0x188cf) — dispatches FIRST on
+`[ebx+0x40]` = kind: **kind 1 → 0x419198**, **kind 2 → 0x418fc8**, kind 3 (baby)
+falls through at 0x188f3. Each kind's handler then dispatches on the current
+sequence label. Kind-1 adult act labels (cmp/sub tree at 0x419198): 0x21=33
+(coil-heat), 0x85=133, 0xAC=172, 0xD1=209, 0x25A=602; kind-2: 638/231/252; baby:
+988/997/1003/1009/1014/1019 etc.
+At a flight-loop boundary the engine rolls **`RandShort(10)` (0x422f51) and only
+breaks into an act on 0 — ~10%** — and even then only if the on-screen room check
+(0x419b0b / IsSequenceQueued 0x41987f) passes; otherwise it keeps cruising
+(default label falls straight to the epilogue 0x419444, no act). QueueSequence =
+0x419cc1. When it does act, a sub-roll (RandShort(3)/RandShort(5), e.g. baby
+0x418c4d) picks which. The web `pickerRoll()` uses the confirmed 10% gate (a
+prior ~66% guess made flight far too busy); the exact per-act sub-distribution
+(s44/s48 launch state) is still approximated (uniform pick).
 Special-entry starting labels (launch dispatch 0x186d9): current-label→start-label
 pairs {0x40E→0x40E, +0x45→0x453, +4→0x457, 0x4AF?→0x957, +0x1B→0x472, 0x482→0x482,
 0x495→0x495, +0x13→0x4A8, default→0x3D7}. Labels **0x472 (1138)** and **0x957

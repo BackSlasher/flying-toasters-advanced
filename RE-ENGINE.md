@@ -117,6 +117,30 @@ Sound-id encoding: PlayNoise takes `0x55F0 + (wav-22000)` (so 0x55F0=22000,
 0x55F1=22001, 0x55F5=22005, 0x55FA=22010, 0x55FC=22012). The 13 WAVs are IMA
 ADPCM 22 kHz; already PCM-converted in `assets/sounds/22000..22012.wav`.
 
+### Frame-bound sounds (the second, larger sound path) — `assets/soundmap.json`
+
+The PlayNoise call sites above are only the *event* sounds (whoosh, morph,
+fire). The bulk of the audio is bound to compound **frames** at art
+registration: `ToasterControl::IToasterControl` (0x1ce51) calls the registrar
+0x41694a(chan, label, sound, …) pairing a sequence label with a WAV. When
+playback reaches that frame, the sound fires — this is why toast-pops, the conga
+drum, and wing-flutter had "no code that plays them" in the gag handlers. 28
+bindings extracted (`tools/gagmap.py soundmap()`), e.g. **2421/2438 → 22002
+(conga drum)** for the power-cord gag, 281/761/819/… → 22008 (pop), 971/1330/…
+→ 22003 (flutter). Player fires these via `_soundAt(frame)` against
+`saver.soundMap`. This path + the PlayNoise events together are the full audio.
+
+### Two queue methods: 0x7c AND 0x80
+
+The channel vtable has TWO sequence-queue methods, both taking a label:
+`[eax+0x7c]` (QueueSequence, 150 sites) and `[eax+0x80]` (sibling, 46 sites, 21
+with labels). Extracting only 0x7c dropped whole channels — **1349's police-car
+main sequence (675) is queued only via 0x80**, likewise 679 sub2=683, 2349
+main=2321, 2406's extra baby 988. gagmap.py's `extract_handler` now walks both
+with a per-call push-stack (channel = last `[ebx+off]` pushed, label = last
+immediate). NB capstone renders small immediates in DECIMAL (`push 3`), so the
+disperse markers (3, = plain flight like 93) must be parsed as decimal.
+
 ## Implications for the web port
 
 - **Gags**: implement a `GagActor` owning several `Player`s. Drive them off a
@@ -243,5 +267,58 @@ the gagmap extractor missed it. Found by scanning gag handlers for +0xc8:
   off onto sub1 and flies on; main continues as plain flight 93.
 - **1672**: main.BreakOffProp(sub1, 1686, 1734) — breaks off a rider (1734,
   the "titanic pose" toaster); main continues as 1686.
-The web port models these as `props: [label]` extra channels spawned near the
-main toaster (positions approximate; the real split happens mid-flight).
+Full signature (cdecl, from the two push sequences at 0x11605 / 0x13421):
+`main.Split(this=main, subChannel, contLabel, propLabel)`. The prop is passed NO
+coordinates — Split detaches it at the main sprite's CURRENT position, gated by
+main reaching the split frame (`[eax+0x4a]` = sequence-complete flag). The web
+port now honours this: the prop spawns when the main channel finishes its gag
+sequence, at main's live center, and keeps its own sequence (a toast drifts as a
+toast — no flight-flap append).
+
+## Self-contained multi-body formations vs. fly-in channels
+
+Some formation sequences draw the ENTIRE group from a single channel: a frame's
+item list holds one toaster art per formation member. Detect via frame item
+count >= 3: **2736** wedge (3), **2406/2391** mother+3-babies (4), **2910**
+finale (3). For these the single-body sub-channels the handler also sets up are
+the pre-form fly-in (each member entering separately) that MERGES into the
+formed sequence — leaving them running duplicates the toasters (2406's "extra
+stuttering baby"). The port suppresses single-body subs when main plays a
+>=3-body sequence. NB compute this on PLAYABLE main sequences only (>1 frame):
+2458's main queue includes a 4-body 1-frame layout CARD (the formation template,
+one artch item per channel) that is dropped before playback — counting it would
+wrongly collapse 2458's four real formation-arc channels.
+
+## Channel object vtable — method census (CORRECTED)
+
+The channel is a CompoundSprite SUBCLASS; its vtable is adxpl510.dll RVA 0x507b0
+(90 entries), with the CompoundSprite methods starting at +0x78. Resolving the
+offsets the gag handlers call against that vtable (NOT the plain CompoundSprite
+vtable 0x50828 — earlier offsets were empirical guesses):
+
+| offset | method |
+|---|---|
+| 0x7c | **NextSequence** (queue/advance one) |
+| 0x80 | **NextSequences** (queue several) |
+| 0x98 | SetCenterPoint |
+| 0xa0 | **CountLoopsOutOfView** (query: counts loops while out of view; @0x41a020) |
+| 0xc4 | **Merge** (used only by 792) |
+| 0xc8 | **Split** = BreakOffProp (807, 1672) |
+| 0xf4 | MoveToAlignChannelRect |
+| 0xfc | **GetChannelRect** (getter, slot 1-4) — NOT a follower/merge |
+| 0x10c | PredictEndpoint |
+
+**Formation assembly** (2736 wedge, 2406 family) — PORTED (cooperative draw):
+- `CompoundSequence::DrawFrame` (0x418df7) iterates the sprite's channels and
+  draws only those whose per-channel visibility flag is set (`[sprite+0xbc] +
+  ch*14 + 0xe` bit 0). So a formation is drawn COOPERATIVELY: each sprite draws
+  only the slots it owns — there is no single sprite drawing the whole group.
+- The handler pairs `GetChannelRect(main, slot)` (0xfc, reads body-slot N's rect)
+  with `SetCenterPoint(sub)` (0x98) to place each sub on its slot. Extracted into
+  gags.json `slots` {channel: slotN} (positional pairing of the two op streams).
+- Port (assemble path, default on): main draws every slot NOT owned by a sub
+  (revealSlots mask over the fully-populated formed frame); each sub draws its own
+  1-body sequence and is re-centred on the main's live slot rect every tick, so
+  the group stays locked as it drifts. Formation dissolves (slot-bodies die) with
+  main. 2736 → clean 3-wedge, 2406 → mum + 3 babies (slot-4 baby is sub1's 988).
+  `sv.assemble=false` reverts to the old suppression (main draws whole group).

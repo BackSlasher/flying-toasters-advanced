@@ -69,11 +69,15 @@ html, body {
   margin: 10px 0 0;
 }
 
-#sound-btn {
+#topbar {
   position: fixed;
   top: 12px;
   right: 12px;
   z-index: 20;
+  display: flex;
+  gap: 8px;
+}
+#topbar button {
   background: rgba(30, 30, 46, .85);
   color: #ddd;
   border: 1px solid #4a4a5a;
@@ -84,25 +88,36 @@ html, body {
   opacity: .55;
   transition: opacity .2s;
 }
-#sound-btn:hover { opacity: 1; }
-#sound-btn.on { background: rgba(58, 106, 58, .9); border-color: #6a9b6a; color: #fff; opacity: .9; }
+#topbar button:hover { opacity: 1; }
+/* an active toggle glows green */
+#topbar button.on { background: rgba(58, 106, 58, .9); border-color: #6a9b6a; color: #fff; opacity: .95; }
 
-#menu-btn {
-  position: fixed;
-  top: 12px;
-  right: 128px;
-  z-index: 20;
-  background: rgba(30, 30, 46, .85);
-  color: #ddd;
-  border: 1px solid #4a4a5a;
-  border-radius: 6px;
-  padding: 7px 12px;
-  font: 13px system-ui, sans-serif;
-  cursor: pointer;
-  opacity: .55;
-  transition: opacity .2s;
+/* retro density slider */
+#panel .slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%;
+  height: 6px;
+  margin: 8px 0 2px;
+  background: #808080;
+  border: 1px solid #fff;
+  border-right-color: #404040;
+  border-bottom-color: #404040;
+  outline: none;
 }
-#menu-btn:hover { opacity: 1; }
+#panel .slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 12px; height: 18px;
+  background: #d4d0c8;
+  border: 2px outset #fff;
+  cursor: pointer;
+}
+#panel .slider::-moz-range-thumb {
+  width: 12px; height: 18px;
+  background: #d4d0c8;
+  border: 2px outset #fff;
+  cursor: pointer;
+}
+#objects-label { font-weight: bold; }
 
 #identify {
   position: fixed;
@@ -113,9 +128,33 @@ html, body {
   border-radius: 5px;
   padding: 6px 10px;
   font: 12px monospace;
-  pointer-events: none;
   max-width: 250px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+#id-copy {
+  flex: none;
+  background: #2a3a4a;
+  color: #cfe0ee;
+  border: 1px solid #4a6a8a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font: 11px system-ui, sans-serif;
+  cursor: pointer;
+}
+#id-copy:hover { background: #34506a; }
+#id-close {
+  flex: none;
+  background: #3a2a2a;
+  color: #e0b0b0;
+  border: 1px solid #6a4a4a;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font: 11px system-ui, sans-serif;
+  cursor: pointer;
+}
+#id-close:hover { background: #5a3434; color: #fff; }
 
 .hidden { display: none !important; }
 

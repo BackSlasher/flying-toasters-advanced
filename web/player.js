@@ -19,8 +19,9 @@
 let DESIGN_W = 640, DESIGN_H = 480;
 const KAR_W = 640, KAR_H = 480;
 const TICK_MS = 100;
-const SPAWN_MS = 350;                            // min gap between spawns
-const ASSETS = '../assets';
+// dev serves web/index.html with assets one level up (../assets); the built site
+// puts index.html and assets/ side by side at the served root (assets).
+const ASSETS = location.pathname.includes('/web/') ? '../assets' : 'assets';
 
 const rand = n => Math.floor(Math.random() * n);          // RandShort(n)
 const pick = arr => arr[rand(arr.length)];
@@ -37,9 +38,28 @@ function loadImage(url) {
 }
 
 // ------------------------------------------------------------- sprite banks
+// Drop the opaque black backdrop from a sprite: the karaoke line/word arts are
+// white/red text on a black BOX, which shows a faint "tear" at its edges over
+// the night sky. Make near-black pixels transparent so only the glyphs remain.
+function dropBlackBox(im) {
+  const c = document.createElement('canvas');
+  c.width = im.width; c.height = im.height;
+  const g = c.getContext('2d');
+  g.drawImage(im, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height), px = d.data;
+  for (let i = 0; i < px.length; i += 4) {
+    // fade out dark pixels (box + heavy outline); keep bright glyph pixels.
+    const lum = Math.max(px[i], px[i + 1], px[i + 2]);
+    if (lum < 60) px[i + 3] = 0;
+    else if (lum < 110) px[i + 3] = Math.round(px[i + 3] * (lum - 60) / 50);
+  }
+  g.putImageData(d, 0, 0);
+  return c;
+}
+
 class ArtIndex {
   constructor() { this.byId = new Map(); }
-  async load(bankIds, banksMeta) {
+  async load(bankIds, banksMeta, process) {
     const jobs = [];
     for (const b of bankIds) {
       const meta = banksMeta[b];
@@ -48,7 +68,7 @@ class ArtIndex {
         const id = Number(fid);
         jobs.push(loadImage(
           `${ASSETS}/sprites/${b}/f${String(id).padStart(3, '0')}.png`
-        ).then(im => { if (im) this.byId.set(id, im); }));
+        ).then(im => { if (im) this.byId.set(id, process ? process(im) : im); }));
       }
     }
     await Promise.all(jobs);
@@ -69,12 +89,19 @@ class Compound {
 }
 
 class Player {
-  constructor(compound, art) {
+  constructor(compound, art, sv) {
     this.c = compound;
     this.art = art;
+    this.sv = sv;                              // for frame-triggered sounds
     this.ox = 0; this.oy = 0;
     this.seq = null; this.idx = 0;
     this.prevFrame = null;                     // last frame obj drawn
+  }
+  // engine binds sounds to sequence labels (ToasterControl::IToasterControl);
+  // fire when playback reaches a bound frame (toast pops, conga drum, flutter…)
+  _soundAt(frame) {
+    const w = this.sv && this.sv.soundMap && this.sv.soundMap[frame];
+    if (w) this.sv.playSound(w);
   }
   // queued label = frame id; start playing from that frame
   enter(label) {
@@ -89,6 +116,7 @@ class Player {
     this.idx = seq.indexOf(label);
     this.label = label;
     this.prevFrame = target;
+    this._soundAt(seq[this.idx]);
     return true;
   }
   _alignCommonArt(prev, link) {
@@ -113,6 +141,7 @@ class Player {
     if (this.idx + 1 >= this.seq.length) return 'end';
     this.idx++;
     this.prevFrame = this.cur();
+    this._soundAt(this.seq[this.idx]);
     return 'run';
   }
   cur() { return this.c.frame(this.seq[this.idx]); }
@@ -181,7 +210,7 @@ class ToasterActor {
     this.kind3 = false;
     this.weight = 1;
     this.dead = false;
-    this.p = new Player(sv.compound, sv.art);
+    this.p = new Player(sv.compound, sv.art, sv);
     this.queue = [];
     this.travel = sv.travelCache;              // label -> measured [dx,dy]
     this.adult = adultSong;
@@ -256,24 +285,19 @@ class ToasterActor {
   }
 
   pickerRoll() {
-    if (this.kind === 1) {
-      const r = rand(35);
-      if (r === 1) return 133;
-      if (r === 2) return 172;
-      if (r === 3) return 209;
-      if (r >= 10 && r <= 19) return 33;
-      if (r >= 20 && r <= 29) return 602;
-      return 3;
-    }
-    if (this.kind === 2) {
-      const r = rand(30);
-      if (r === 2 || r === 3) return 231;
-      if (r === 5 || r === 6) return 252;
-      if (r >= 10 && r <= 19) return 638;
-      return 93;
-    }
-    const r = rand(80);
-    return [988, 1014, 1009, 1019][r] || 983;
+    // Flight state machine (FlyingToaster handlers: kind1 @0x419198, kind2
+    // @0x418fc8, kind3/baby @0x188cf, dispatched on [ebx+0x40]=kind). At a
+    // flight-loop boundary the engine rolls RandShort(10) (0x422f51) and only
+    // breaks into a special act on 0 — ~10% — and even then only if an on-screen
+    // room check (0x419b0b/0x41987f) passes; otherwise it keeps cruising. This
+    // 10% gate is the extracted figure (was a ~66% guess, which made flight far
+    // too busy). The exact choice among a kind's acts lives in the s44/s48 launch
+    // state machine (not fully lifted); picked uniformly here.
+    const cruise = this.kind === 1 ? 3 : this.kind === 2 ? 93 : 983;
+    if (rand(10) !== 0) return cruise;                 // ~90%: keep cruising
+    if (this.kind === 1) return pick([33, 133, 172, 209, 602]);
+    if (this.kind === 2) return pick([638, 231, 252]);
+    return pick([988, 1014, 1009, 1019]);              // baby specials
   }
 
   boundary() {
@@ -389,7 +413,7 @@ class Actor {
     this.sv = sv;
     this.kind = kind;
     this.weight = 1;
-    this.p = new Player(sv.compound, sv.art);
+    this.p = new Player(sv.compound, sv.art, sv);
     this.dead = false;
     this.loop = null;
 
@@ -440,6 +464,7 @@ class Actor {
     if (this.p.offscreen() && (this.arrived || this.age > 80)) { this.die(); return; }
     if (this.kind === 'intro') {
       if (this.chain.length) { this.p.enter(this.chain.shift()); return; }
+      this.introDone = true;                       // reached plain flight
       this.p.enter(93);
       return;
     }
@@ -465,44 +490,180 @@ class MultiGag {
     this.scen = scen;
     this.dead = false;
     // gags.json entry; if the scenario had no queue ops it's self-contained —
-    // play its own sequence on main.
-    const spec = sv.gags[String(scen)] || { chans: { main: [scen] } };
-    const order = ['main', 'sub1', 'sub2', 'sub3'].filter(k => spec.chans[k]);
+    // play its own sequence on main. (An entry may still carry a `loops` list
+    // for that fallback main channel even with empty chans.)
+    const orig = sv.gags[String(scen)];
+    // Self-contained gag: the engine queued no explicit sequence (the handler's
+    // QueueSequence labels are all computed scenario-relative). These are the
+    // toaster playing a MODIFIED-FLIGHT loop — fire 928, hoola 1361, rowing 658,
+    // leapfrog 2239, bagel-ride 1387 — which loop until they drift off. Explicit
+    // queues instead carry the trailing-disperse structure (below) verbatim.
+    const selfContained = !orig || !orig.chans || !Object.keys(orig.chans).length;
+    let spec = orig || { chans: { main: [scen] } };
+    if (selfContained) spec = Object.assign({}, spec, { chans: { main: [scen] } });
+    let order = ['main', 'sub1', 'sub2', 'sub3'].filter(k => spec.chans[k]);
     this.weight = (spec.cfg && spec.cfg.weight) || 1;
+    // max sprite bodies a label's sequence draws (frame item count)
+    const bodies = l => {
+      let mx = 0;
+      for (const fn of (sv.compound.seqOf.get(l) || [l])) {
+        const f = sv.compound.frame(fn);
+        if (f) mx = Math.max(mx, f.items.length);
+      }
+      return mx;
+    };
+    const playable = k => (spec.chans[k] || []).filter(
+      l => l !== 93 && l !== 3 && (sv.compound.seqOf.get(l) || [l]).length > 1);
+    // Formation assembly (engine: GetChannelRect(slot) + SetCenterPoint per
+    // channel — see gags.json `slots`): each channel snaps onto a body-slot of the
+    // main's formed multi-body sequence, then plays its own chain (2736's subs
+    // disperse; 2406's slot-4 baby stays). `sv.assemble` toggles this vs. the old
+    // suppression (drop single-body subs, main draws the whole group).
+    // Formation assembly (engine: GetChannelRect(slot) + SetCenterPoint per
+    // channel, and DrawFrame's per-channel visibility). Each sprite draws only the
+    // slots it OWNS: subs draw the slots the handler SetCenters them onto and follow
+    // the main's live slot rect each tick; main draws every OTHER slot of the formed
+    // multi-body sequence. No overlap, cooperatively-drawn formation. `sv.assemble
+    // = false` reverts to the suppression (main draws the whole group, subs dropped).
+    const slots = spec.slots || {};
+    const mainFormed = playable('main').find(l => bodies(l) >= 3);
+    const useAssembly = sv.assemble !== false && Object.keys(slots).length && mainFormed;
+    let mainDrawSlots = null;
+    if (useAssembly) {
+      // Each sprite draws only the art-channels it OWNS (DrawFrame per-channel
+      // visibility flag). Subs own the slots the handler SetCenters them onto;
+      // main draws every OTHER slot of the formed sequence. No overlap.
+      const subSlots = new Set();
+      for (const k of order) if (k !== 'main' && slots[k] != null) subSlots.add(slots[k]);
+      // use the FULLY-populated frame of the formed sequence (some open with fewer
+      // bodies — 2391's first frame has 1, later 4), so all slots are accounted for.
+      let ff = null;
+      for (const fn of (sv.compound.seqOf.get(mainFormed) || [])) {
+        const f = sv.compound.frame(fn);
+        if (f && (!ff || f.items.length > ff.items.length)) ff = f;
+      }
+      mainDrawSlots = new Set(ff.items.map(it => it.artch).filter(a => !subSlots.has(a)));
+    } else if (mainFormed) {
+      // suppression fallback: drop the single-body fly-in subs; main IS the group
+      order = order.filter(k => k === 'main' || playable(k).some(l => bodies(l) >= 2));
+    }
     // entry-lane geometry (engine fn 0x17378): lane<split enters along the TOP
     // edge (x = baseX+(lane-split)*160+240, y = baseY-80); lane>=split enters
     // along the RIGHT edge (x = baseX+80, y = baseY+(lane-split)*80).
     const split = spec.cfg && spec.cfg.split != null ? spec.cfg.split : 1;
     const baseX = DESIGN_W - 240, baseY = 60 + rand(90);
-    const seqLen = l => (sv.compound.seqOf.get(l) || [l]).length;
+    const comp = sv.compound;
+    const seqOf = l => comp.seqOf.get(l) || [l];
+    const seqLen = l => seqOf(l).length;
+    // A sequence is a *formation arc* when it carries a long absolute trajectory
+    // baked into its frame rects (e.g. 2473 sweeps (826,-44)->(428,228)): it must
+    // play at its authored 640x480 coordinates, synchronized with its siblings,
+    // NOT re-placed on an entry lane. Actor sequences (mother/babies, food) are
+    // short flap loops whose drift comes from common-art alignment; those keep
+    // the entry-lane placement. Cutoff (len>=40 & displacement>=250px) cleanly
+    // separates the two populations in the extracted data.
+    const disp = l => {
+      const s = seqOf(l);
+      const ctr = fn => {
+        const f = comp.frame(fn); if (!f) return null;
+        const r = f.rect; return [(r[0] + r[2]) / 2 + f.dx, (r[1] + r[3]) / 2 + f.dy];
+      };
+      const a = ctr(s[0]), b = ctr(s[s.length - 1]);
+      return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
+    };
+    const isFormation = l => seqLen(l) >= 40 && disp(l) >= 250;
+    // formations are authored in the 640x480 design box; center it in the field
+    const offX = Math.round((DESIGN_W - KAR_W) / 2), offY = Math.round((DESIGN_H - KAR_H) / 2);
     this.ch = [];
     order.forEach((k, i) => {
-      let chain = spec.chans[k].slice();
-      while (chain.length && chain[0] === 93) chain = chain.slice(1);  // strip init disperse(s)
-      // main plays the gag's own seq first — unless it's already in the chain
-      if (k === 'main' && !chain.includes(scen)) chain.unshift(scen);
-      // drop 1-frame "start card" layout markers (e.g. 2458) — positions come
-      // from the entry-lane geometry, so the card frame would just flash/freeze
+      const raw = spec.chans[k].slice();
+      const isDisp = l => l === 93 || l === 3;
+      // Whether the last REAL (non-disperse) sequence is FOLLOWED by a disperse in
+      // the engine's queue. That is the ground-truth persist signal: a sequence
+      // with a disperse after it loops until it drifts out of view then resumes
+      // flight (bagel-eyes 913, bagel-pop 861); a sequence that is the very last
+      // entry with no disperse after plays ONCE, then the queue ends and the
+      // toaster resumes plain flight (toast-insert 792). (CountLoopsOutOfView is
+      // the engine's out-of-view detector that drives that trailing disperse.)
+      let lastRealIdx = -1;
+      for (let j = raw.length - 1; j >= 0; j--) if (!isDisp(raw[j])) { lastRealIdx = j; break; }
+      const loopsLast = lastRealIdx >= 0 && lastRealIdx < raw.length - 1;
+
+      let chain = raw.slice();
+      while (chain.length && isDisp(chain[0])) chain = chain.slice(1);  // strip leading
+      // drop 1-frame "start card" layout markers (e.g. 2458/679) — the formation
+      // TEMPLATE (one artch item per channel), not a playable actor.
       chain = chain.filter(l => seqLen(l) > 1);
-      if (!chain.length) chain = [scen];
-      const p = new Player(sv.compound, sv.art);
+      // self-contained scenario: no queued sequence, so the scenario label IS the
+      // sequence (a real multi-frame one, not a 1-frame card). Plays once.
+      if (!chain.length) {
+        if (k === 'main' && seqLen(scen) > 1) chain = [scen];
+        else return;
+      }
+      const formation = isFormation(chain[0]);
+      const slotFollow = useAssembly && k !== 'main' && slots[k] != null ? slots[k] : null;
+      if (formation) {
+        // formations end mid-screen; their arc would teleport back if looped, so
+        // they always exit on plain flight regardless of the queue's disperse.
+        const last = chain[chain.length - 1];
+        if (!isDisp(last)) chain = chain.concat([93]);
+      } else if (loopsLast || (selfContained && k === 'main') || slotFollow != null) {
+        // loop the last real sequence until it drifts off (strip trailing disperse).
+        // selfContained mains + assembly slot-bodies loop their sequence to persist.
+        while (chain.length > 1 && isDisp(chain[chain.length - 1]))
+          chain = chain.slice(0, -1);
+      } else {
+        // play once, then plain flight carries the toaster off
+        const last = chain[chain.length - 1];
+        if (!isDisp(last)) chain = chain.concat([93]);
+      }
+      const p = new Player(comp, sv.art, sv);
       p.enter(chain[0]);
-      const cx = i < split ? baseX + (i - split) * 160 + 240 : baseX + 80;
-      const cy = i < split ? baseY - 80 : baseY + (i - split) * 80;
-      p.placeCenter(cx, cy);
-      if (k === 'main') { this.mainX = cx; this.mainY = cy; }
-      this.ch.push({ p, chain, ci: 0, dead: false });
+      let cx, cy;
+      if (formation) {
+        // authored absolute coords carry the arc; flight then drifts it out
+        p.ox = offX; p.oy = offY;
+        const bc = p.bounds();
+        cx = (bc[0] + bc[2]) / 2; cy = (bc[1] + bc[3]) / 2;
+      } else if (slotFollow != null && this.mainCh) {
+        // assembly slot-body: parked near main; positioned onto its slot each tick
+        cx = this.mainX; cy = this.mainY;
+        p.placeCenter(cx, cy);
+      } else {
+        cx = i < split ? baseX + (i - split) * 160 + 240 : baseX + 80;
+        cy = i < split ? baseY - 80 : baseY + (i - split) * 80;
+        p.placeCenter(cx, cy);
+      }
+      if (this.mainX == null) { this.mainX = cx; this.mainY = cy; }
+      const rec = { p, chain, ci: 0, dead: false, formation, slotFollow };
+      if (k === 'main') { this.mainCh = rec; rec.drawSlots = mainDrawSlots; }
+      this.ch.push(rec);
     });
-    // props broken off the main toaster (engine BreakOffProp / vtbl+0xc8) — a
-    // toast/prop that splits off and flies on independently (e.g. 807's toast).
-    (spec.props || []).forEach(pl => {
-      const p = new Player(sv.compound, sv.art);
-      p.enter(pl);
-      p.placeCenter(this.mainX + 30, this.mainY + 20);   // near the toaster
-      this.ch.push({ p, chain: [pl], ci: 0, dead: false });
-    });
+    if (this.mainX == null) { this.mainX = DESIGN_W / 2; this.mainY = DESIGN_H / 2; }
+    // props that BREAK OFF the main toaster mid-gag (engine Split, chan vtbl+0xc8:
+    // main.Split(subCh, contLabel, propLabel) — 807 splits the golden toast 2974,
+    // 1672 splits a rider 1734). The engine fires this when main reaches the split
+    // frame (flag [eax+0x4a] = sequence complete), detaching the prop at the
+    // toaster's LIVE position — so we defer the spawn to that transition, not the
+    // start, and place it exactly where the main toaster is then.
+    this.pendingProps = (spec.props || []).slice();
     (spec.sounds || []).forEach(s => sv.playSound(s));
     if (SCEN_SFX[scen]) sv.playSound(SCEN_SFX[scen]);   // cord/fire/police/morph
+  }
+  _splitProps() {
+    // spawn each pending prop at the main toaster's current center
+    const m = this.mainCh;
+    const b = m ? m.p.bounds() : [this.mainX, this.mainY, this.mainX, this.mainY];
+    const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+    for (const pl of this.pendingProps) {
+      const p = new Player(this.sv.compound, this.sv.art, this.sv);
+      p.enter(pl);
+      p.placeCenter(cx, cy);
+      // the prop keeps its OWN sequence (a toast tumbles/drifts as a toast) —
+      // it drifts off on its own; no flight-flap append (that flapped the toast).
+      this.ch.push({ p, chain: [pl], ci: 0, dead: false });
+    }
+    this.pendingProps = [];
   }
   tick() {
     // Each channel plays its chain independently then loops the last sequence
@@ -514,16 +675,50 @@ class MultiGag {
       if (c.dead) continue;
       if (c.p.tick() === 'end') {
         c.ci++;
-        c.p.enter(c.ci < c.chain.length ? c.chain[c.ci] : c.chain[c.chain.length - 1]);
+        // main finished its gag sequence → break off any pending props HERE, at
+        // the toaster's live position (the engine's split moment).
+        if (c === this.mainCh && c.ci === 1 && this.pendingProps.length) this._splitProps();
+        const next = c.ci < c.chain.length ? c.chain[c.ci] : c.chain[c.chain.length - 1];
+        // resuming plain flight (3/93) after a gag = the engine handing the
+        // toaster back to the flight state machine, which continues from the
+        // sprite's CURRENT position. Preserve it instead of snapping onto shared
+        // art (the power-cord/flight poses share a body art far apart → a 164px
+        // teleport that read as "flickering out"). Other transitions (morph,
+        // formation links) keep common-art continuity. IMPORTANT: only on the
+        // FIRST gag→flight seam — once cruising, flight self-loops (93→93) must
+        // use natural common-art drift, else placeCenter cancels the per-loop
+        // leftward step (~17px) and the toaster creeps rightward each cycle.
+        const prevLabel = c.p.label;
+        const b = c.p.bounds(), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+        c.p.enter(next);
+        if ((next === 93 || next === 3) && prevLabel !== 93 && prevLabel !== 3)
+          c.p.placeCenter(cx, cy);
         if (c.ci >= c.chain.length) c.ci = c.chain.length - 1;
       }
       if (!c.p.offscreen(0)) c._arr = true;
       if (c.p.offscreen(40) && (c._arr || (c._age = (c._age || 0) + 1) > 250)) c.dead = true;
       if (!c.dead) alive++;
     }
+    // formation assembly: park each slot-body onto the main's live body-slot rect
+    // (engine SetCenterPoint to GetChannelRect(slot)) so the group stays locked as
+    // it drifts. When main leaves the formed frame it rides along at main's centre;
+    // the formation dissolves (slot-bodies die) with main.
+    const m = this.mainCh;
+    if (m) {
+      const mf = m.p.cur();
+      const mb = m.p.bounds();
+      for (const c of this.ch) {
+        if (c.dead || c.slotFollow == null) continue;
+        if (m.dead) { c.dead = true; continue; }
+        const it = mf.items.find(x => x.artch === c.slotFollow);
+        if (it) c.p.placeCenter(m.p.ox + (it.rect[0] + it.rect[2]) / 2 + mf.dx,
+                                m.p.oy + (it.rect[1] + it.rect[3]) / 2 + mf.dy);
+        else c.p.placeCenter((mb[0] + mb[2]) / 2, (mb[1] + mb[3]) / 2);
+      }
+    }
     if (!alive) this.dead = true;
   }
-  draw(ctx) { for (const c of this.ch) if (!c.dead) c.p.draw(ctx); }
+  draw(ctx) { for (const c of this.ch) if (!c.dead) c.p.draw(ctx, c.drawSlots); }
 }
 
 // ------------------------------------------------------------- debug harness
@@ -536,7 +731,7 @@ class DebugActor {
     this.dead = false;
     this.weight = 0;
     this.doLoop = loop;
-    this.p = new Player(sv.compound, sv.art);
+    this.p = new Player(sv.compound, sv.art, sv);
     this.chain = chain.slice();
     this.original = chain.slice();
     this.p.enter(this.chain.shift());
@@ -582,7 +777,7 @@ class Karaoke {
     this.reveal = new Set();
     this.bagelX = null;
     this.bagelTarget = null;
-    this.bagel = new Player(this.sv.compound, this.sv.art);
+    this.bagel = new Player(this.sv.compound, this.sv.art, this.sv);
     this.bagel.enter(3305);                      // winged bagel flap (seq 3304)
   }
   wordCenter(slot) {
@@ -605,6 +800,11 @@ class Karaoke {
       if (e.ev === 0) {
         this.line = e.line; this.reveal = new Set();
         this.bagelX = null;
+        // a new line hasn't ended yet — clear any prior line's end marker so a
+        // fast-forward (enabling karaoke mid-song, or resuming a hidden tab)
+        // that lands INSIDE this line doesn't immediately blank it with a stale
+        // lineEndAt from the previous line.
+        this.lineEndAt = null;
       } else if (e.ev === 1 || e.ev === 2) {
         this.line = e.line; this.reveal.add(e.word);
         const cx = this.wordCenter(e.word);
@@ -634,18 +834,59 @@ class Karaoke {
     if (!this.line) return;
     const fr = this.c.frame(this.line);
     if (!fr) return;
-    // anchor the karaoke box: horizontally centered, pinned to the bottom
-    const kx = Math.round((DESIGN_W - KAR_W) / 2), ky = DESIGN_H - KAR_H;
-    for (const it of fr.items) {
-      if (it.artch > 1 && !this.reveal.has(it.artch)) continue;
-      const im = this.sv.karArt.get(it.art);
-      if (im) ctx.drawImage(im, kx + it.rect[0], ky + it.rect[1]);
+    // Anchor every line at the SAME screen position — a banner near the bottom.
+    // Each line frame's artch-1 rect jitters a few px in y (264-269), and the box
+    // sits ~214px up, so lines appeared to wander down/mid-screen. Compensate by
+    // deriving ky from THIS line's top so it always lands at a fixed baseline.
+    const lineTop = (fr.items.find(i => i.artch === 1) || { rect: [0, 266] }).rect[1];
+    const kx = Math.round((DESIGN_W - KAR_W) / 2);
+    const ky = DESIGN_H - 64 - lineTop;
+    // The line is ONE clean WHITE sprite (artch 1). The engine's per-syllable RED
+    // glyph arts (artch>1) have overlapping/mis-tiled bounding boxes that garble
+    // when stamped, so instead we keep the white sprite and TINT it red up to the
+    // sung cursor: draw white, then `source-atop` a red fill over the sung region
+    // recolors exactly the glyph pixels (respecting their alpha) — a clean
+    // left-to-right red wipe, authentic font, no overlap/fringe. The cursor is the
+    // right edge of the furthest sung syllable (engine reveal = a range going red).
+    if (!this._oc) this._oc = document.createElement('canvas');
+    const oc = this._oc;
+    if (oc.width !== KAR_W) { oc.width = KAR_W; oc.height = KAR_H; }
+    const octx = oc.getContext('2d');
+    octx.clearRect(0, 0, KAR_W, KAR_H);
+    const wl = fr.items.find(i => i.artch === 1);
+    if (wl) {
+      const im = this.sv.karArt.get(wl.art);
+      if (im) octx.drawImage(im, wl.rect[0], wl.rect[1]);
+      let cursor = -Infinity;
+      for (const it of fr.items)
+        if (it.artch > 1 && this.reveal.has(it.artch)) cursor = Math.max(cursor, it.rect[2]);
+      if (im && cursor > -Infinity) {
+        // Recolor the sung region red. MULTIPLY turns the white glyphs red and
+        // keeps the black box black — but it also paints the sprite's TRANSPARENT
+        // margins solid red (multiply over an empty pixel = red), which showed as
+        // a red bar above the text. So after multiplying, mask with the sprite
+        // again via destination-in: keeps colour only where the glyph/box had
+        // pixels, erasing the red that landed on transparent areas.
+        octx.save();
+        octx.beginPath();
+        octx.rect(wl.rect[0], wl.rect[1] - 2,
+                  Math.min(cursor, wl.rect[2]) - wl.rect[0], wl.rect[3] - wl.rect[1] + 4);
+        octx.clip();
+        octx.globalCompositeOperation = 'multiply';
+        octx.fillStyle = '#ff3a2c';
+        octx.fillRect(wl.rect[0], wl.rect[1] - 2, KAR_W, wl.rect[3] - wl.rect[1] + 4);
+        octx.restore();
+        octx.globalCompositeOperation = 'destination-in';
+        octx.drawImage(im, wl.rect[0], wl.rect[1]);
+        octx.globalCompositeOperation = 'source-over';
+      }
     }
+    ctx.drawImage(oc, kx, ky);
     if (this.bagelX != null) {
       const bfr = this.bagel.cur();
       const w = bfr.rect[2] - bfr.rect[0], h = bfr.rect[3] - bfr.rect[1];
       this.bagel.ox = Math.round(kx + this.bagelX - w / 2 - bfr.rect[0]);
-      this.bagel.oy = Math.round(ky + fr.rect[1] - 31 - h - bfr.rect[1]);
+      this.bagel.oy = Math.round(ky + fr.rect[1] - 6 - h - bfr.rect[1]);
       this.bagel.draw(ctx);
     }
   }
@@ -667,7 +908,7 @@ class Screensaver {
     this.sfxCache = new Map();                    // wav id -> decoded AudioBuffer
     this.music = { buffer: null, src: null, startAt: 0, song: null };
     this.settings.music = false;
-    this.muted = true;        // master mute (silences without stopping playback)
+    this.muted = false;       // legacy master gate; music/sfx now toggle per-channel
     this.musicClock = 0;      // continuous timeline (ms), advances even muted
     this.introRunning = false;
   }
@@ -685,6 +926,19 @@ class Screensaver {
   setMuted(m) {
     this.muted = m;
     if (this.masterGain) this.masterGain.gain.value = m ? 0 : 1;
+  }
+  // Clear the field and let it re-fill fresh under the current settings. Used
+  // when a preference (density, adult/baby) changes so the change takes effect
+  // immediately rather than the swarm slowly drifting to the new mix.
+  restart() {
+    this.actors = [];
+    this.debugActor = null;
+    this.debugFactory = null;
+    this.introRunning = false;
+    this.moonActive = false;
+    this._lastSpawn = 0;
+    this.lastCloud = -1e9; this.lastGag = -1e9;
+    this.lastGagB = -1e9; this.lastGagC = -1e9;
   }
 
   maxObjects() {
@@ -749,6 +1003,11 @@ class Screensaver {
       this.spawnGag();
       return;
     }
+    // Toaster-vs-food choice = ToasterControl::RandomType (0x1e260): roll
+    // RandShort(5), then gate food on the live toaster/food ratio. The thresholds
+    // are EXTRACTED (float consts @0x41e384=2.0, @0x41e388=4.0; default ratio
+    // when no food = 0x40800000=4.0) — type is food when ratio exceeds them,
+    // else another toaster. So the flock self-balances ~4:1 toasters:food.
     const toasters = this.actors.filter(a => a instanceof ToasterActor).length;
     const food = this.actors.filter(a => a.kind === 'food' || a.kind === 'babyfood').length;
     const ratio = food > 0 ? toasters / food : 4.0;
@@ -821,27 +1080,45 @@ class Screensaver {
     }
     if (this.introRunning) {
       const intro = this.actors[0];
-      intro.tick();
-      if (intro.dead) { this.introRunning = false; this.actors = []; }
-      return;                                    // intro runs exclusively
+      if (!intro) { this.introRunning = false; this.actors = []; }
+      else {
+        intro.tick();
+        if (intro.dead) { this.introRunning = false; this.actors = []; return; }
+        // hand off to the swarm the moment the toaster materializes and starts
+        // flying — DON'T wait for it to exit (it stays as the first swarm member,
+        // others join around it). Return once so we don't double-tick this frame.
+        if (intro.introDone) { this.introRunning = false; return; }
+        return;                                  // still slideshow/materialize
+      }
     }
     if (this.settings.toasters !== 2) this.songType = this.settings.toasters;
-    this.musicClock += TICK_MS;                   // continuous song timeline
+    // Continuous song timeline. When music is actually playing, slave the clock
+    // to the AUDIO position (audioContext.currentTime) — a hidden tab throttles
+    // rAF but WebAudio keeps playing, so a tick-counted clock would fall behind
+    // the music and desync the karaoke. When no music source exists, advance by
+    // the tick delta so the timeline still progresses (muted/again on unmute).
+    if (this.music.src && this.audioCtx) {
+      this.musicClock = (this.audioCtx.currentTime - this.music.startAt) * 1000;
+    } else {
+      this.musicClock += TICK_MS;
+    }
     for (const a of this.actors) a.tick();
     this.actors = this.actors.filter(a => !a.dead);
-    // Stagger spawns so toasters enter continuously and spread (not a burst),
-    // but fill in a roughly fixed time regardless of field size: interval
-    // scales inversely with the population target (big window → faster fill).
-    const t = now();
-    const max = this.maxObjects();
-    const interval = Math.max(120, SPAWN_MS * 20 / max);   // ~7s to fill
-    if (this.population() < max && t > (this._lastSpawn || 0) + interval) {
-      this._lastSpawn = t;
-      this.spawn();
+    // Engine spawn cadence (ToasterControl::Play 0x1dcd0): each 10Hz tick, if the
+    // population is below target, spawn exactly ONE object. Fills to target in
+    // ~(target) ticks — a few seconds — as the original does.
+    if (this.population() < this.maxObjects()) this.spawn();
+    // karaoke tracks the same timeline as the music. It must wrap on the MUSIC's
+    // loop length, not its own event total — the lyric events end ~2s before the
+    // song's instrumental outro (song0: 84.3s events vs 86.5s audio), so wrapping
+    // on the event total drifts the karaoke ahead of the music a little every
+    // loop. Mod by the audio duration when music is playing; the tail past the
+    // last event simply shows no line (instrumental), then wraps with the song.
+    if (this.settings.karaoke) {
+      const loopMs = (this.music.src && this.music.dur)
+        ? this.music.dur * 1000 : this.karaoke.total;
+      this.karaoke.tick(TICK_MS, this.musicClock % loopMs);
     }
-    // karaoke tracks the same continuous timeline (mod its length), so it and
-    // the music stay in lockstep and unmuting joins mid-song
-    if (this.settings.karaoke) this.karaoke.tick(TICK_MS, this.musicClock % this.karaoke.total);
   }
 
   // double-click identify: find the actor under (x,y) and describe its state
@@ -884,18 +1161,19 @@ class Screensaver {
 
 // -------------------------------------------------------------------- boot
 async function boot() {
-  const [banksMeta, comp22000, comp22100, karaokeTables, gags] = await Promise.all([
+  const [banksMeta, comp22000, comp22100, karaokeTables, gags, soundMap] = await Promise.all([
     loadJSON(`${ASSETS}/sprites/banks.json`),
     loadJSON(`${ASSETS}/compound_22000.json`),
     loadJSON(`${ASSETS}/compound_22100.json`),
     loadJSON(`${ASSETS}/karaoke.json`),
     loadJSON(`${ASSETS}/gags.json`),
+    loadJSON(`${ASSETS}/soundmap.json`),
   ]);
   const ids = Object.keys(banksMeta).map(Number);
   const art = new ArtIndex(), karArt = new ArtIndex();
   await Promise.all([
     art.load(ids.filter(b => b < 22100), banksMeta),
-    karArt.load(ids.filter(b => b >= 22100), banksMeta),
+    karArt.load(ids.filter(b => b >= 22100), banksMeta, dropBlackBox),
   ]);
   const sounds = {};
   for (let id = 22000; id <= 22012; id++) {
@@ -903,20 +1181,23 @@ async function boot() {
       .then(b => { sounds[id] = b; }).catch(() => {});
   }
 
-  // parser limitation: 1782/1928 share a handler; fix 1782's companion labels
-  if (gags['1782']) gags['1782'].chans = { main: [1786], sub1: [1786], sub2: [1852] };
+  // (1782/1928 share handler 0x10fc6 — the pair formation arcs 1933+2004 now
+  //  come straight from extraction, so the earlier hand-patched labels are gone.)
   // morph: extraction left a trailing 1288 (futuristic) after the devolve 1303,
   // which "clipped into future toaster"; end on morph-back then plain flight
-  if (gags['1288']) gags['1288'].chans = { main: [1233, 1288, 1303, 3] };
+  if (gags['1288']) gags['1288'].chans = { main: [1233, 1288, 1303] };
   // BreakOffProp gags (engine vtbl+0xc8, missed by the QueueSequence extractor):
   // 807 splits the toast (2974) off the toaster; 1672 splits off a rider (1734)
-  if (gags['807']) { gags['807'].chans = { main: [807, 93] }; gags['807'].props = [2974]; }
+  // 807's main queue is just disperse ([3,3]) — the toss animation IS the
+  // scenario's own sequence 807 (played once via the self-contained fallback);
+  // it breaks off a golden toast (2974) that flies on. Just wire the prop.
+  if (gags['807']) gags['807'].props = [2974];
   if (gags['1672']) { gags['1672'].chans = { main: [1672, 1686] }; gags['1672'].props = [1734]; }
   const saver = new Screensaver({
     art, karArt,
     compound: new Compound(comp22000),
     karCompound: new Compound(comp22100),
-    banksMeta, karaokeTables, sounds, gags,
+    banksMeta, karaokeTables, sounds, gags, soundMap,
   });
   window.saver = saver;                          // debug hook
 
@@ -961,81 +1242,104 @@ async function boot() {
 
   // double-click a toaster to identify it (for reporting stuck/broken ones)
   const idBox = document.getElementById('identify');
+  const idText = document.getElementById('id-text');
+  const idCopy = document.getElementById('id-copy');
+  const idClose = document.getElementById('id-close');
   let idTimer = null;
+  const hideId = () => { clearTimeout(idTimer); idBox.classList.add('hidden'); };
+  const armHide = () => { clearTimeout(idTimer); idTimer = setTimeout(hideId, 6000); };
+  idClose.addEventListener('click', hideId);
+  // Esc closes it too
+  window.addEventListener('keydown', e => { if (e.key === 'Escape') hideId(); });
   canvas.addEventListener('dblclick', e => {
     const r = canvas.getBoundingClientRect();
     const x = (e.clientX - r.left) * (canvas.width / r.width);
     const y = (e.clientY - r.top) * (canvas.height / r.height);
     const info = saver.identifyAt(x, y);
-    idBox.textContent = info || 'nothing there';
+    idText.textContent = info || 'nothing there';
+    idCopy.classList.toggle('hidden', !info);
+    idCopy.textContent = 'copy';
     idBox.style.left = `${Math.min(e.clientX + 12, window.innerWidth - 260)}px`;
     idBox.style.top = `${e.clientY + 12}px`;
     idBox.classList.remove('hidden');
-    clearTimeout(idTimer);
-    idTimer = setTimeout(() => idBox.classList.add('hidden'), 4000);
+    armHide();
   });
-  document.getElementById('objects').onchange = e => { saver.settings.objects = +e.target.value; };
+  idCopy.addEventListener('click', async () => {
+    clearTimeout(idTimer);                          // keep open while confirming
+    try { await navigator.clipboard.writeText(idText.textContent); idCopy.textContent = 'copied ✓'; }
+    catch { idCopy.textContent = 'copy failed'; }
+    armHide();
+  });
+  // Density slider (authentic: the original had a density slider). 4 stops map to
+  // the engine's Flight/Squadron/Air Wing/Swarm object counts.
+  const DENSITY = [['Flight', 0], ['Squadron', 25], ['Air Wing', 50], ['Swarm', 75]];
+  const objSlider = document.getElementById('objects');
+  const objLabel = document.getElementById('objects-label');
+  const applyObjects = () => {
+    const [name, val] = DENSITY[+objSlider.value] || DENSITY[2];
+    saver.settings.objects = val; objLabel.textContent = name;
+  };
+  objSlider.oninput = applyObjects;                 // live label/count while dragging
+  objSlider.onchange = () => { applyObjects(); saver.restart(); };  // restart on release
+  applyObjects();
+
   const syncMusic = () => {
     if (saver.settings.music) { decodeMusic(); saver.playMusic(saver.songType); }
     else saver.stopMusic();
   };
   document.getElementById('toasters').onchange = e => {
     saver.settings.toasters = +e.target.value;
-    if (saver.settings.toasters === 2) saver.songType = rand(2);
+    saver.songType = saver.settings.toasters === 1 ? 1
+                   : saver.settings.toasters === 2 ? rand(2) : 0;
     if (saver.settings.karaoke) saver.karaoke.reset(saver.songType);
     if (saver.settings.music) syncMusic();
-  };
-  document.getElementById('karaoke').onchange = e => {
-    saver.settings.karaoke = e.target.checked;
-    if (e.target.checked) {
-      saver.karaoke.reset(saver.songType);
-      // karaoke wants the song playing to stay in sync
-      if (!saver.settings.music) {
-        saver.settings.music = true;
-        document.getElementById('music').checked = true;
-        syncMusic();
-      }
-    }
-  };
-  document.getElementById('music').onchange = e => {
-    saver.settings.music = e.target.checked;
-    syncMusic();
-    reflectSound();
-  };
-  document.getElementById('sound').onchange = e => {
-    saver.settings.sound = e.target.checked;
-    if (e.target.checked) saver.audio();         // unlock audio on user gesture
-    reflectSound();
+    saver.restart();                                // adult/baby switch takes effect now
   };
   document.getElementById('intro-btn').onclick = () => { saver.playIntro(); togglePanel(); };
   document.getElementById('debug-btn').onclick = () => { buildDebug(saver); togglePanel(); };
 
-  // Prominent top-left sound toggle: doubles as the user-gesture that unlocks
-  // WebAudio (browsers block autoplay on load). Turns music + SFX on together.
-  const soundBtn = document.getElementById('sound-btn');
-  function reflectSound() {
-    const on = !saver.muted;
-    soundBtn.textContent = on ? '🔊 sound on' : '🔇 sound off';
-    soundBtn.classList.toggle('on', on);
-    document.getElementById('music').checked = saver.settings.music;
-    document.getElementById('sound').checked = saver.settings.sound;
+  // Top-bar toggle buttons: music / sfx / karaoke, each independent. Any click
+  // also unlocks WebAudio (browsers block autoplay until a user gesture).
+  const musicBtn = document.getElementById('music-btn');
+  const sfxBtn = document.getElementById('sfx-btn');
+  const karBtn = document.getElementById('karaoke-btn');
+  function reflectButtons() {
+    musicBtn.classList.toggle('on', saver.settings.music);
+    sfxBtn.classList.toggle('on', saver.settings.sound);
+    karBtn.classList.toggle('on', saver.settings.karaoke);
   }
-  // master mute toggle: unmuting starts the music once (at the current timeline
-  // offset) and thereafter only flips the master gain — no stop/restart.
-  soundBtn.onclick = () => {
-    saver.audio();                               // unlock + build masterGain
-    const turnOn = saver.muted;
-    saver.setMuted(!turnOn);
-    if (turnOn) {
-      saver.settings.sound = true;
-      saver.settings.music = true;
-      if (!saver.music.src) syncMusic();         // start once, seeks to offset
-    }
-    reflectSound();
+  musicBtn.onclick = () => {
+    saver.audio();
+    saver.settings.music = !saver.settings.music;
+    syncMusic();
+    reflectButtons();
   };
-  reflectSound();
+  sfxBtn.onclick = () => {
+    saver.audio();                               // unlock on gesture
+    saver.settings.sound = !saver.settings.sound;
+    reflectButtons();
+  };
+  karBtn.onclick = () => {
+    saver.settings.karaoke = !saver.settings.karaoke;
+    // karaoke is independent of music: it runs on the continuous timeline
+    // (musicClock), so lyrics scroll with or without the song playing.
+    if (saver.settings.karaoke) saver.karaoke.reset(saver.songType);
+    reflectButtons();
+  };
+  reflectButtons();
 
-  saver.playIntro();                             // authentic: intro on activation
+  // Apply the controls' CURRENT values on load — a browser may restore a prior
+  // selection (e.g. Babies) across reloads, and settings would otherwise keep
+  // the constructor defaults (Adults) until the user re-toggled.
+  saver.settings.toasters = +document.getElementById('toasters').value;
+  saver.songType = saver.settings.toasters === 1 ? 1
+                 : saver.settings.toasters === 2 ? rand(2) : 0;
+  applyObjects();
+
+  // The engine only plays the evolution-slideshow intro for the ADULT song
+  // (SetPlayIntro is gated on songType==0 @0x1c340); baby mode goes straight to
+  // the swarm. So skip the intro when we're on the baby song.
+  if (saver.songType === 0) saver.playIntro();
 
   let acc = 0, last = performance.now();
   function frame(t) {
@@ -1081,13 +1385,15 @@ const DEBUG_CATALOG = {
     ['cloud A (463)', [3053]], ['cloud B (464)', [3058]],
     ['cloud C (465)', [3063]], ['cloud D (466)', [3068]],
   ],
+  // Names describe the EXTRACTED composition (channel count / formation-vs-actor
+  // / confirmed props), not guessed choreography. User-confirmed names are kept.
   'Gags — family A': [
-    ['pair formation 1782', { g: 1782 }], ['pair formation 1928', { g: 1928 }],
-    ['toast juggle→spawn (792)', { g: 792 }], ['toast toss (807)', { g: 807 }],
-    ['toast relay (749)', { g: 749 }], ['bagel pop (861)', { g: 861 }],
-    ['chase 274', { g: 274 }], ['loop-the-loop 295', { g: 295 }],
-    ['dive 312', { g: 312 }], ['climb 329', { g: 329 }],
-    ['barrel-roll train 558', { g: 558 }], ['chase 456', { g: 456 }],
+    ['pair 1782 (arcs 1933+2004)', { g: 1782 }], ['pair 1928 (=1782 handler)', { g: 1928 }],
+    ['toaster + toast (792)', { g: 792 }], ['toast split-off (807)', { g: 807 }],
+    ['toast relay (749)', { g: 749 }], ['bagel from toaster (861)', { g: 861 }],
+    ['flight variant 274', { g: 274 }], ['flight variant 295', { g: 295 }],
+    ['flight variant 312', { g: 312 }], ['flight variant 329', { g: 329 }],
+    ['flight variant 558', { g: 558 }], ['flight variant 456', { g: 456 }],
   ],
   'Gags — family B': [
     ['mother + babies (2391)', { g: 2391 }], ['mother + babies (2406)', { g: 2406 }],
@@ -1099,11 +1405,11 @@ const DEBUG_CATALOG = {
     ['kissing pair (2298)', { g: 2298 }],
   ],
   'Gags — family C': [
-    ['power cord (2421)', { g: 2421 }], ['DIAMOND — 4 toasters (2458)', { g: 2458 }],
-    ['3-wedge (2736)', { g: 2736 }], ['finale — 3 (2910)', { g: 2910 }],
-    ['big formation / conga? (1402)', { g: 1402 }], ['toaster+upside-down 1672', { g: 1672 }],
-    ['pair formation 2080', { g: 2080 }], ['POLICE chase — 3 (679)', { g: 679 }],
-    ['police escort (1349)', { g: 1349 }], ['bagel-eyes — 2 (879)', { g: 879 }],
+    ['power cord + conga (2421)', { g: 2421 }], ['line formation ×4 (2458)', { g: 2458 }],
+    ['wedge ×3 (2736)', { g: 2736 }], ['sync lane-change ×3 (2910)', { g: 2910 }],
+    ['same-lane block (1402)', { g: 1402 }], ['toaster + rider (1672)', { g: 1672 }],
+    ['pair arcs (2080)', { g: 2080 }], ['police ×3 (679)', { g: 679 }],
+    ['police car + toaster (1349)', { g: 1349 }], ['bagel-eyes ×2 (879)', { g: 879 }],
   ],
   'Flight specials (baby launch)': [
     ['special 1038', [1038], 'loop'], ['special 1065', [1065], 'loop'],
