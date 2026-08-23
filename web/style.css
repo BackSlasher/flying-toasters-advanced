@@ -87,6 +87,36 @@ html, body {
 #sound-btn:hover { opacity: 1; }
 #sound-btn.on { background: rgba(58, 106, 58, .9); border-color: #6a9b6a; color: #fff; opacity: .9; }
 
+#menu-btn {
+  position: fixed;
+  top: 12px;
+  right: 128px;
+  z-index: 20;
+  background: rgba(30, 30, 46, .85);
+  color: #ddd;
+  border: 1px solid #4a4a5a;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .2s;
+}
+#menu-btn:hover { opacity: 1; }
+
+#identify {
+  position: fixed;
+  z-index: 30;
+  background: rgba(20, 20, 30, .95);
+  color: #9be89b;
+  border: 1px solid #4a6a4a;
+  border-radius: 5px;
+  padding: 6px 10px;
+  font: 12px monospace;
+  pointer-events: none;
+  max-width: 250px;
+}
+
 .hidden { display: none !important; }
 
 #debugbar {
@@ -142,6 +172,9 @@ html, body {
 #debugbar button.active .dbg-num { color: #cfe8cf; }
 #debugbar .dbg-clear { margin-top: 10px; background: #4a2a2a; }
 #debugbar .dbg-copy { margin-top: 6px; margin-bottom: 20px; background: #2a3a4a; }
+#debugbar .kind-loop { color: #7bb0e8; }
+#debugbar .kind-act { color: #e8c07b; }
+#debugbar .kind-once { color: #b06a6a; }
 #debugbar button.rv-v { border-left: 3px solid #6a9b6a; }
 #debugbar button.rv-x { border-left: 3px solid #b06a6a; }
 #debugbar button[data-tag]::after { content: attr(data-tag); float: right; opacity: .8; }

@@ -462,6 +462,7 @@ class MultiGag {
   constructor(sv, scen) {
     this.sv = sv;
     this.kind = 'gag';
+    this.scen = scen;
     this.dead = false;
     // gags.json entry; if the scenario had no queue ops it's self-contained —
     // play its own sequence on main.
@@ -568,6 +569,7 @@ class Karaoke {
   reset(song) {
     this.song = song;
     this.events = this.sv.karaokeTables[String(song)].events;
+    this.total = this.events.reduce((s, e) => s + (e.ms || 0), 0) || 1;
     this.i = -1;
     this.deadline = 0;            // durations are deltas accumulated by the loop
     this.t = 0;
@@ -660,6 +662,7 @@ class Screensaver {
     this.sfxCache = new Map();                    // wav id -> decoded AudioBuffer
     this.music = { buffer: null, src: null, startAt: 0, song: null };
     this.settings.music = false;
+    this.musicClock = 0;      // continuous timeline (ms), advances even muted
     this.introRunning = false;
   }
 
@@ -756,23 +759,28 @@ class Screensaver {
       d => { this.sfxCache.set(id, d); fire(d); });
   }
 
-  // Music: play the matching song, aligned so karaoke can read playback time.
+  // Music runs on a continuous timeline (musicClock, always advancing even when
+  // muted) so unmuting joins the song mid-stream instead of restarting at 0:00.
   playMusic(song) {
     const ctx = this.audio();
     const buf = this.music.buffers && this.music.buffers[song];
     if (!buf) { this.music.pending = song; return; }
     this.stopMusic();
+    const offset = (this.musicClock / 1000) % buf.duration;   // join at timeline
     const s = ctx.createBufferSource();
     s.buffer = buf; s.loop = true;
-    s.connect(ctx.destination); s.start();
-    this.music.src = s; this.music.startAt = ctx.currentTime; this.music.song = song;
+    s.connect(ctx.destination); s.start(0, offset);
+    // startAt is the virtual time at which the song's 0 would have played, so
+    // musicMs() keeps returning the timeline position.
+    this.music.src = s; this.music.startAt = ctx.currentTime - offset;
+    this.music.song = song; this.music.dur = buf.duration;
   }
   stopMusic() {
     if (this.music.src) { try { this.music.src.stop(); } catch {} this.music.src = null; }
   }
   musicMs() {
-    if (!this.music.src) return null;
-    return (this.audioCtx.currentTime - this.music.startAt) * 1000;
+    // authoritative timeline; the audio is slaved to it. Always advances.
+    return this.musicClock;
   }
 
   setDebug(actorOrFactory) {
@@ -804,6 +812,7 @@ class Screensaver {
       return;                                    // intro runs exclusively
     }
     if (this.settings.toasters !== 2) this.songType = this.settings.toasters;
+    this.musicClock += TICK_MS;                   // continuous song timeline
     for (const a of this.actors) a.tick();
     this.actors = this.actors.filter(a => !a.dead);
     // Stagger spawns so toasters enter continuously and spread (not a burst),
@@ -816,7 +825,33 @@ class Screensaver {
       this._lastSpawn = t;
       this.spawn();
     }
-    if (this.settings.karaoke) this.karaoke.tick(TICK_MS, this.musicMs());
+    // karaoke tracks the same continuous timeline (mod its length), so it and
+    // the music stay in lockstep and unmuting joins mid-song
+    if (this.settings.karaoke) this.karaoke.tick(TICK_MS, this.musicClock % this.karaoke.total);
+  }
+
+  // double-click identify: find the actor under (x,y) and describe its state
+  // (for reporting stuck/broken toasters)
+  identifyAt(x, y) {
+    const hit = p => { const b = p.bounds(); return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; };
+    const list = this.debugActor ? [this.debugActor] : this.actors;
+    for (const a of list) {
+      if (a.ch) {                                  // MultiGag: check each channel
+        for (let i = 0; i < a.ch.length; i++) {
+          const c = a.ch[i];
+          if (!c.dead && hit(c.p))
+            return `GAG scen ${a.scen} · ch${i} · seq ${c.p.label}` +
+                   ` · step ${c.ci + 1}/${c.chain.length}` + (c.atBoundary ? ' · WAITING' : '');
+        }
+      } else if (a.p && hit(a.p)) {
+        if (a instanceof ToasterActor)
+          return `toaster kind ${a.kind} · seq ${a.p.label}` +
+                 ` · s44=${a.s44} s48=${a.s48}`;
+        if (a.kind === 'debug') return `debug · seq ${a.p.label}`;
+        return `${a.kind} · seq ${a.p.label}`;
+      }
+    }
+    return null;
   }
 
   draw(ctx) {
@@ -900,8 +935,24 @@ async function boot() {
   const panel = document.getElementById('panel');
   const togglePanel = () => panel.classList.toggle('hidden');
   window.addEventListener('keydown', e => { if (e.key === 'Escape') togglePanel(); });
-  canvas.addEventListener('click', togglePanel);
+  document.getElementById('menu-btn').onclick = togglePanel;   // side button, not canvas click
   document.getElementById('close-btn').onclick = togglePanel;
+
+  // double-click a toaster to identify it (for reporting stuck/broken ones)
+  const idBox = document.getElementById('identify');
+  let idTimer = null;
+  canvas.addEventListener('dblclick', e => {
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left) * (canvas.width / r.width);
+    const y = (e.clientY - r.top) * (canvas.height / r.height);
+    const info = saver.identifyAt(x, y);
+    idBox.textContent = info || 'nothing there';
+    idBox.style.left = `${Math.min(e.clientX + 12, window.innerWidth - 260)}px`;
+    idBox.style.top = `${e.clientY + 12}px`;
+    idBox.classList.remove('hidden');
+    clearTimeout(idTimer);
+    idTimer = setTimeout(() => idBox.classList.add('hidden'), 4000);
+  });
   document.getElementById('objects').onchange = e => { saver.settings.objects = +e.target.value; };
   const syncMusic = () => {
     if (saver.settings.music) { decodeMusic(); saver.playMusic(saver.songType); }
@@ -982,14 +1033,18 @@ async function boot() {
 // straight from gags.json — so what you review is exactly what the swarm runs).
 // Rebuilt to reflect the authentic RE (family tables, gags.json). Babies last.
 const DEBUG_CATALOG = {
+  // 3rd element = authentic nature: 'loop' (repeats), 'act' (enters/loops/
+  // self-exits back to cruise), 'once' (single play). Default: chains 'loop',
+  // gags 'once'.
   'Adult flight': [
-    ['cruise 1 (3)', [3]], ['cruise 2 (93)', [93]],
-    ['coil-heat act (18→33→48)', [18, 33, 33, 48]],
-    ['act 586→602→607', [586, 602, 602, 607]],
-    ['638 act (622→638→643)', [622, 638, 638, 643]],
-    ['one-shot 133', [133]], ['one-shot 172', [172]], ['one-shot 209', [209]],
-    ['one-shot 231', [231]], ['one-shot 252', [252]],
-    ['turn-around 105', [105, 122]], ['turn-around 115', [115, 122]],
+    ['cruise 1 (3)', [3], 'loop'], ['cruise 2 (93)', [93], 'loop'],
+    ['coil-heat act (18→33→48)', [18, 33, 33, 48], 'act'],
+    ['act 586→602→607', [586, 602, 602, 607], 'act'],
+    ['638 act (622→638→643)', [622, 638, 638, 643], 'act'],
+    ['one-shot 133', [133], 'once'], ['one-shot 172', [172], 'once'],
+    ['one-shot 209', [209], 'once'],
+    ['one-shot 231', [231], 'once'], ['one-shot 252', [252], 'once'],
+    ['turn-around 105', [105, 122], 'once'], ['turn-around 115', [115, 122], 'once'],
   ],
   'Food': [
     ['cracker (3039)', [3039]], ['bagel (3024)', [3024]],
@@ -1026,15 +1081,18 @@ const DEBUG_CATALOG = {
     ['police escort (1349)', { g: 1349 }], ['bagel-eyes — 2 (879)', { g: 879 }],
   ],
   'Flight specials (baby launch)': [
-    ['special 1038', [1038]], ['special 1065', [1065]], ['special 1107', [1107, 1065]],
-    ['special 1111', [1111]], ['mom+babies 1138', [1138]], ['special 1154', [1154]],
-    ['special 1173', [1173]], ['special 1192', [1192]],
-    ['flip-over 946 (raw)', [945]], ['toast-pop 748 (raw)', [748]],
+    ['special 1038', [1038], 'loop'], ['special 1065', [1065], 'loop'],
+    ['special 1107', [1107, 1065], 'loop'],
+    ['special 1111', [1111], 'once'], ['mom+babies 1138', [1138], 'loop'],
+    ['special 1154', [1154], 'loop'], ['special 1173', [1173], 'loop'],
+    ['special 1192', [1192], 'loop'],
+    ['flip-over 946 (raw)', [945], 'once'], ['toast-pop 748 (raw)', [748], 'act'],
   ],
   '(baby) flight': [
-    ['plain 983', [983]], ['wander 988', [988]], ['wander 997', [997]],
-    ['wander 1003', [1003]], ['ladder 1009', [1009]], ['ladder 1014', [1014]],
-    ['swoop 1019→1025', [1019, 1025]],
+    ['plain 983', [983], 'loop'], ['wander 988', [988], 'loop'],
+    ['wander 997', [997], 'loop'], ['wander 1003', [1003], 'loop'],
+    ['ladder 1009', [1009], 'loop'], ['ladder 1014', [1014], 'loop'],
+    ['swoop 1019→1025', [1019, 1025], 'once'],
   ],
   '(baby) food': [
     ['duck 3274', [3274]], ['duck wiggle 3279', [3279]], ['bottle 3286', [3286]],
@@ -1071,11 +1129,12 @@ function buildDebug(saver) {
   auto.className = 'dbg-auto';
   auto.innerHTML = '<input type="checkbox" id="dbg-solo" checked> solo (pause the swarm)';
   bar.appendChild(auto);
-  const loopLbl = document.createElement('label');
-  loopLbl.className = 'dbg-auto';
-  loopLbl.innerHTML = '<input type="checkbox" id="dbg-loop" checked> loop act ' +
-    '(off = play once, then plain flight — matches the swarm)';
-  bar.appendChild(loopLbl);
+  const legend = document.createElement('div');
+  legend.className = 'dbg-auto';
+  legend.innerHTML = '<span class="kind-loop">⟳ loops</span> · ' +
+    '<span class="kind-act">⤾ act (self-exits)</span> · ' +
+    '<span class="kind-once">▶ one-shot</span>';
+  bar.appendChild(legend);
 
   const byNum = {};
   let n = 0;
@@ -1090,17 +1149,20 @@ function buildDebug(saver) {
     h.className = 'dbg-group';
     h.textContent = group;
     bar.appendChild(h);
-    for (const [name, spec] of items) {
+    for (const [name, spec, kindRaw] of items) {
       n++;
       const num = n;                             // capture per-iteration
       const isGag = !Array.isArray(spec);
+      const kind = kindRaw || (isGag ? 'once' : 'loop');   // authentic nature
+      const badge = { loop: '⟳', act: '⤾', once: '▶' }[kind];
       const id = isGag ? `g${spec.g}` : spec.join('-');   // stable per-act key
       const b = document.createElement('button');
       b.dataset.num = num; b.dataset.id = id;
-      b.dataset.defname = name; b.dataset.group = group;
+      b.dataset.defname = name; b.dataset.group = group; b.dataset.kind = kind;
       const render = () => {
         const disp = (reviews[id] && reviews[id].name) || name;
-        b.innerHTML = `<span class="dbg-num">${num}</span>${disp}` +
+        b.innerHTML = `<span class="dbg-num">${num}</span>` +
+          `<span class="kind-${kind}" title="${kind}">${badge}</span> ${disp}` +
           `<span class="dbg-tag"></span>`;
         mark(b, id);
       };
@@ -1109,11 +1171,11 @@ function buildDebug(saver) {
       byNum[n] = b;
       b.onclick = () => {
         saver.debugSolo = document.getElementById('dbg-solo').checked;
-        const doLoop = document.getElementById('dbg-loop').checked;
         // gags spawn the REAL MultiGag (auto-respawns for repeat viewing);
-        // flight/food play via DebugActor
+        // flight/food play via DebugActor. 'loop'/'act' keep cycling; 'once'
+        // plays through then returns to plain flight (then replays for viewing).
         const factory = isGag ? () => new MultiGag(saver, spec.g)
-                              : () => new DebugActor(saver, spec, doLoop);
+                              : () => new DebugActor(saver, spec, kind !== 'once');
         saver.setDebug(factory);
         bar.querySelectorAll('button[data-id]').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
