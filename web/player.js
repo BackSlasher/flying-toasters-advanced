@@ -585,15 +585,14 @@ class MultiGag {
       // entry with no disperse after plays ONCE, then the queue ends and the
       // toaster resumes plain flight (toast-insert 792). (CountLoopsOutOfView is
       // the engine's out-of-view detector that drives that trailing disperse.)
-      let lastRealIdx = -1;
-      for (let j = raw.length - 1; j >= 0; j--) if (!isDisp(raw[j])) { lastRealIdx = j; break; }
-      // Engine ground-truth persist (gagmap 0x4e loop-count + on-screen re-queue):
-      // this channel's transform holds — loops until it drifts out of view, then
-      // disperses. Captures both the self-looping transforms (fire, formations)
-      // AND the driver-re-queued ones (police 1349) that carry NO trailing
-      // disperse in the flattened chain, so loopsLast alone would miss them.
+      // Engine ground-truth persist: this channel's transform holds — loops until
+      // it drifts out of view, then disperses — iff the extractor read that from
+      // the binary (0x4e loop-count = CountLoopsOutOfView, or an on-screen re-queue
+      // loop). Covers self-looping transforms (fire, formations) AND driver
+      // re-queued ones (police 1349). The old `loopsLast` trailing-disperse proxy
+      // is gone: it could DISAGREE with the ground-truth signal (e.g. it looped
+      // 792's insert forever though hold=false) — hold is now the sole gate.
       const holdCh = !!(spec.hold && spec.hold[k]);
-      const loopsLast = lastRealIdx >= 0 && lastRealIdx < raw.length - 1;
 
       let chain = raw.slice();
       while (chain.length && isDisp(chain[0])) chain = chain.slice(1);  // strip leading
@@ -613,7 +612,7 @@ class MultiGag {
         // they always exit on plain flight regardless of the queue's disperse.
         const last = chain[chain.length - 1];
         if (!isDisp(last)) chain = chain.concat([93]);
-      } else if (holdCh || loopsLast || (selfContained && k === 'main') || slotFollow != null) {
+      } else if (holdCh || (selfContained && k === 'main') || slotFollow != null) {
         // loop the last real sequence until it drifts off (strip trailing disperse).
         // selfContained mains + assembly slot-bodies loop their sequence to persist.
         while (chain.length > 1 && isDisp(chain[chain.length - 1]))
