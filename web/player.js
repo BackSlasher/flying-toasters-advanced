@@ -180,6 +180,12 @@ class Player {
 // two adult flight families (kinds 1/2) + the baby family (kind 3), per-kind
 // label pickers, entry->loop->exit acts with room guards, locked specials.
 
+// Cull safety net (ticks): the engine removes a sprite when its ±35px box leaves
+// the screen (0x1798f), guarded by having-been-seen. This only bounds the
+// degenerate case of a sprite that spawns off-screen and never enters — one
+// value in place of the old ad-hoc 80/120/250/400 age constants.
+const CULL_MAX_TICKS = 400;
+
 // RE-NOTES §1: adult food picker RandShort(9) -> queued labels
 const FOOD_ROLLS = [3039, 3024, 3019, 3002, 2997, 2979, 2969, 2974, 2974];
 // baby food RandShort(6)
@@ -393,14 +399,14 @@ class ToasterActor {
     this.age = (this.age || 0) + 1;
     if (!this.p.offscreen(0)) this.arrived = true;
     if (this.p.tick() !== 'end') return;
-    // death: fully past left or bottom edge only (0x179e7 / 0x17a43)
-    const b = this.p.bounds();
-    if ((b[2] < 0 || b[1] > DESIGN_H) && (this.arrived || this.age > 120)) {
+    // Ground-truth cull: the engine removes a sprite once its ±35px box (0x1798f)
+    // leaves the screen. `arrived` guards the entry lane (spawn starts beyond the
+    // margin), and CULL_MAX_TICKS is a single never-arrived safety (a bad spawn
+    // that never enters) — replacing the old per-case 120/400 age constants.
+    if (this.p.offscreen() && (this.arrived || this.age > CULL_MAX_TICKS)) {
       this.dead = true;
       return;
     }
-    // safety: locked specials that drift off top/right would never die
-    if (this.p.offscreen(120) && this.age > 400) { this.dead = true; return; }
     this.boundary();
   }
   get kindName() { return this.kind === 3 && !this.adult ? 'baby' : 'toaster'; }
@@ -460,8 +466,8 @@ class Actor {
     if (!this.p.offscreen(0)) this.arrived = true;
     if (this.p.tick() !== 'end') return;
     // sequence boundary: cull only after the actor has actually been seen
-    // (entry placement starts beyond the offscreen margin)
-    if (this.p.offscreen() && (this.arrived || this.age > 80)) { this.die(); return; }
+    // (entry placement starts beyond the ±35 margin) — same ground-truth rule
+    if (this.p.offscreen() && (this.arrived || this.age > CULL_MAX_TICKS)) { this.die(); return; }
     if (this.kind === 'intro') {
       if (this.chain.length) { this.p.enter(this.chain.shift()); return; }
       this.introDone = true;                       // reached plain flight
@@ -706,7 +712,7 @@ class MultiGag {
         if (c.ci >= c.chain.length) c.ci = c.chain.length - 1;
       }
       if (!c.p.offscreen(0)) c._arr = true;
-      if (c.p.offscreen(40) && (c._arr || (c._age = (c._age || 0) + 1) > 250)) c.dead = true;
+      if (c.p.offscreen() && (c._arr || (c._age = (c._age || 0) + 1) > CULL_MAX_TICKS)) c.dead = true;
       if (!c.dead) alive++;
     }
     // formation assembly: park each slot-body onto the main's live body-slot rect
