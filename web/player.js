@@ -172,7 +172,8 @@ const GAG_B = [[2391, 2], [2406, 2], [1213, 1], [658, 1],
                [928, 1], [1361, 1], [1372, 1], [2239, 2], [1387, 1], [2272, 1],
                [2298, 1], [2349, 1],
                [878, 2],                          // bagel-eyes (persistent)
-               [1232, 1]];                        // evolution morph
+               [1232, 1],                         // evolution morph
+               [748, 1]];                         // toast popper (self-contained)
 const GAG_C = [[2421, 4], [2736, 1], [2910, 1], [1672, 2],
                [1349, 2], [946, 2]];
 // scenario -> follow-on. persist = loop this label until offscreen.
