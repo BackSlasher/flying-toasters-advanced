@@ -14,7 +14,10 @@ Format recovered by disassembling adxpl510.dll (RLESequence class):
   - IHDR payload: +0 dword (BE), then 4 LE words: rect (t?, l?, b?, r?).
   - CSTM payload: row-oriented RLE stream, one stream of `height` rows.
     Opcode byte: low nibble = op, high nibble = H:
-      0: end of row
+      0: row terminator, sub-dispatched on H (row-table builder @0x431d7b):
+         H==1 end of row; H==0 end of sprite (last row only);
+         H==3 row reference (next 2 bytes BE = 0-based row index to copy);
+         H==2/H>=4 no-op (continue current row)
       1: skip H transparent px (H==0: count = next byte)
       2: run of ctab[H], count = next byte
       3: 1px ctab[H]      4: 2px ctab[H]      5: 3px ctab[H]
@@ -71,16 +74,34 @@ def decode_rows(stream, expected_rows=None):
 
     try:
         while i < n:
+            if expected_rows is not None and len(rows) >= expected_rows:
+                break
             b = stream[i]; i += 1
             op, h = b & 0xF, b >> 4
+            if op == 0:
+                # op 0 is a row terminator sub-dispatched on the high nibble H
+                # (row-table builder @0x431d7b in adxpl510.dll):
+                #   H==1 -> end of row
+                #   H==0 -> end of sprite (only valid on the last row)
+                #   H==3 -> row reference: next 2 bytes (big-endian) are a 0-based
+                #           row index; this row is a copy of that earlier row
+                #   H==2 or H>=4 -> no-op, keep building the current row
+                if h == 1:
+                    rows.append(row)
+                    row, x = [], 0
+                elif h == 0:
+                    rows.append(row)
+                    row, x = [], 0
+                    break
+                elif h == 3:
+                    ref = (stream[i] << 8) | stream[i + 1]; i += 2
+                    src = rows[ref] if 0 <= ref < len(rows) else []
+                    rows.append([(rx, list(px)) for rx, px in src])
+                    row, x = [], 0
+                continue
             if op > 9:
                 continue
-            if op == 0:
-                rows.append(row)
-                row, x = [], 0
-                if expected_rows is not None and len(rows) >= expected_rows:
-                    break
-            elif op == 1:
+            if op == 1:
                 cnt = h
                 if not cnt:
                     cnt = stream[i]; i += 1
