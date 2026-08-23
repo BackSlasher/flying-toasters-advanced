@@ -474,10 +474,16 @@ class MultiGag {
     // along the RIGHT edge (x = baseX+80, y = baseY+(lane-split)*80).
     const split = spec.cfg && spec.cfg.split != null ? spec.cfg.split : 1;
     const baseX = DESIGN_W - 240, baseY = 60 + rand(90);
+    const seqLen = l => (sv.compound.seqOf.get(l) || [l]).length;
     this.ch = [];
     order.forEach((k, i) => {
       let chain = spec.chans[k].slice();
-      if (chain.length > 1 && chain[0] === 93) chain = chain.slice(1);  // strip init disperse
+      while (chain.length && chain[0] === 93) chain = chain.slice(1);  // strip init disperse(s)
+      if (k === 'main' && chain[0] !== scen) chain.unshift(scen);       // main plays the gag's own seq first
+      // drop 1-frame "start card" layout markers (e.g. 2458) — positions come
+      // from the entry-lane geometry, so the card frame would just flash/freeze
+      chain = chain.filter(l => seqLen(l) > 1);
+      if (!chain.length) chain = [scen];
       const p = new Player(sv.compound, sv.art);
       p.enter(chain[0]);
       const cx = i < split ? baseX + (i - split) * 160 + 240 : baseX + 80;
@@ -489,32 +495,21 @@ class MultiGag {
     if (SCEN_SFX[scen]) sv.playSound(SCEN_SFX[scen]);   // cord/fire/police/morph
   }
   tick() {
-    // Phase-gate barrier (engine run loop 0x10839): a channel that reaches its
-    // sequence end HOLDS its last frame until every channel is at a boundary,
-    // then all advance together — keeps formations locked instead of drifting.
-    let alive = 0, live = 0, waiting = 0;
+    // Each channel plays its chain independently then loops the last sequence
+    // until it drifts offscreen. (An earlier barrier-sync FROZE channels while
+    // waiting for slower ones — the "frozen sprites" the review flagged — so we
+    // let them run free; formations hold well enough via the entry geometry.)
+    let alive = 0;
     for (const c of this.ch) {
       if (c.dead) continue;
-      live++;
-      if (!c.atBoundary) {
-        if (c.p.tick() === 'end') c.atBoundary = true;
-      }
-      if (c.atBoundary) waiting++;
-      if (!c.p.offscreen(0)) c._arr = true;
-      if (c.p.offscreen(40) && (c._arr || (c._age = (c._age || 0) + 1) > 250)) c.dead = true;
-      if (!c.dead) alive++;
-    }
-    if (live > 0 && waiting === live) {          // barrier: all at a boundary
-      for (const c of this.ch) {
-        if (c.dead) continue;
-        c.atBoundary = false;
+      if (c.p.tick() === 'end') {
         c.ci++;
-        // advance the chain; after the last step, LOOP the final sequence until
-        // it drifts offscreen (engine behavior — keeps persistent transforms
-        // like the bagel-on-eyes; an explicit trailing 93 already means disperse)
         c.p.enter(c.ci < c.chain.length ? c.chain[c.ci] : c.chain[c.chain.length - 1]);
         if (c.ci >= c.chain.length) c.ci = c.chain.length - 1;
       }
+      if (!c.p.offscreen(0)) c._arr = true;
+      if (c.p.offscreen(40) && (c._arr || (c._age = (c._age || 0) + 1) > 250)) c.dead = true;
+      if (!c.dead) alive++;
     }
     if (!alive) this.dead = true;
   }

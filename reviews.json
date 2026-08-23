@@ -1,370 +1,282 @@
 [
   {
-    "act": "3",
-    "group": "Adult flight",
-    "default_name": "cruise 1 (label 3)",
+    "act": "g1782",
+    "group": "Gags — family A",
+    "default_name": "pair formation 1782",
+    "verdict": "X",
+    "name": null,
+    "notes": "I'm not sure what I'm seeing"
+  },
+  {
+    "act": "g1928",
+    "group": "Gags — family A",
+    "default_name": "pair formation 1928",
+    "verdict": "X",
+    "name": null,
+    "notes": "same as prev. are they supposed to be in sync? blocking each other?"
+  },
+  {
+    "act": "g792",
+    "group": "Gags — family A",
+    "default_name": "toast juggle→spawn (792)",
+    "verdict": "X",
+    "name": null,
+    "notes": "maybe it works in real but here it's weird. there are two toasters, both repeatedly inserting break, and a single untoasted toast trailing them at lower speed, gaining distance. Once the two toasts go away from the screen it progresses normally, indicating it's blocked on their animation somehow.\nThe correct flow imo is:\ntoaster flies\ntoast flies, goes in toaster\ntoaster glows\ntoaster pops golden toast\ntoaster and toast proceed, unsynced speed-wise."
+  },
+  {
+    "act": "g807",
+    "group": "Gags — family A",
+    "default_name": "toast toss (807)",
+    "verdict": "X",
+    "name": null,
+    "notes": "nothing happening in debug view"
+  },
+  {
+    "act": "g749",
+    "group": "Gags — family A",
+    "default_name": "toast relay (749)",
+    "verdict": "V",
+    "name": null,
+    "notes": "assuming that's a standalone gag, looks acceptable."
+  },
+  {
+    "act": "g861",
+    "group": "Gags — family A",
+    "default_name": "toast+upside-down (861)",
+    "verdict": "X",
+    "name": null,
+    "notes": "the name indicates a different gag, where the toaster flies upside down and drops toast, then flips ok again to catch them. what is visible in the film is bagel popping out of the toaster repeatedly."
+  },
+  {
+    "act": "g274",
+    "group": "Gags — family A",
+    "default_name": "chase 274",
+    "verdict": "X",
+    "name": null,
+    "notes": "by its own, wrong. what I see is a toaster flying by, nothing \"interesting\" happening."
+  },
+  {
+    "act": "g295",
+    "group": "Gags — family A",
+    "default_name": "loop-the-loop 295",
+    "verdict": "X",
+    "name": null,
+    "notes": "nothing interesting happening, just a toaster flying"
+  },
+  {
+    "act": "g312",
+    "group": "Gags — family A",
+    "default_name": "dive 312",
+    "verdict": "X",
+    "name": null,
+    "notes": "nothing interesting happening"
+  },
+  {
+    "act": "g329",
+    "group": "Gags — family A",
+    "default_name": "climb 329",
+    "verdict": "X",
+    "name": null,
+    "notes": "nothing interesting happening"
+  },
+  {
+    "act": "g558",
+    "group": "Gags — family A",
+    "default_name": "barrel-roll train 558",
+    "verdict": "X",
+    "name": null,
+    "notes": "nothing intersteting happening"
+  },
+  {
+    "act": "g456",
+    "group": "Gags — family A",
+    "default_name": "chase 456",
+    "verdict": "X",
+    "name": null,
+    "notes": "nothing interesting happening"
+  },
+  {
+    "act": "g2391",
+    "group": "Gags — family B",
+    "default_name": "mother + 3 babies (2391)",
     "verdict": "V",
     "name": null,
     "notes": null
   },
   {
-    "act": "93",
-    "group": "Adult flight",
-    "default_name": "cruise 2 (label 93)",
-    "verdict": "V",
-    "name": null,
-    "notes": null
-  },
-  {
-    "act": "586-602-602-607",
-    "group": "Adult flight",
-    "default_name": "act 586→602→607",
-    "verdict": "V",
-    "name": "cruise 3",
-    "notes": null
-  },
-  {
-    "act": "133",
-    "group": "Adult flight",
-    "default_name": "one-shot 133",
-    "verdict": "X",
-    "name": "fly up",
-    "notes": "should be a onetime, not a repeat"
-  },
-  {
-    "act": "172",
-    "group": "Adult flight",
-    "default_name": "one-shot 172",
-    "verdict": "X",
-    "name": "go around",
-    "notes": "onetime, should trigger when a toaster is \"going around\" another toaster that is \"too slow\""
-  },
-  {
-    "act": "209",
-    "group": "Adult flight",
-    "default_name": "one-shot 209",
-    "verdict": "X",
-    "name": "slowing down?",
-    "notes": "this toaster is either slowing down or changing a lane"
-  },
-  {
-    "act": "231",
-    "group": "Adult flight",
-    "default_name": "one-shot 231",
-    "verdict": "X",
-    "name": "change lane",
-    "notes": "oneshot, not a repeat"
-  },
-  {
-    "act": "252",
-    "group": "Adult flight",
-    "default_name": "one-shot 252",
-    "verdict": "X",
-    "name": "change lane2",
-    "notes": "oneshot, not a repat"
-  },
-  {
-    "act": "622-638-638-643",
-    "group": "Adult flight",
-    "default_name": "638 act (622→638→643)",
-    "verdict": "V",
-    "name": null,
-    "notes": "I think it's just a normal cruise, but the bunch of numbers in your generated name makes me suspect"
-  },
-  {
-    "act": "105-122",
-    "group": "Adult flight",
-    "default_name": "turn-around 105",
-    "verdict": "X",
-    "name": "slow down?",
-    "notes": "I think this toaster is slowing down when something is happening in front of it"
-  },
-  {
-    "act": "115-122",
-    "group": "Adult flight",
-    "default_name": "turn-around 115",
+    "act": "g2406",
+    "group": "Gags — family B",
+    "default_name": "mother + 2 babies (2406)",
     "verdict": "X",
     "name": null,
-    "notes": "this toast is skipping backwards, something is wrong with the animations. otherwise similar to 11"
+    "notes": "this is a mother and 3 babies, with additional independent baby stuttering a bit to the right. Once the family is off screen completely, the standalone baby no longer stuttres"
   },
   {
-    "act": "3039",
-    "group": "Food",
-    "default_name": "pale toast tumble 3039",
-    "verdict": "V",
-    "name": "cracker",
-    "notes": "this is a cracker, otherwise ok"
+    "act": "g1213",
+    "group": "Gags — family B",
+    "default_name": "toast+upside-down 1213",
+    "verdict": "X",
+    "name": "Baby swinging on cracker",
+    "notes": "bad name, otherwise ok"
   },
   {
-    "act": "3024",
-    "group": "Food",
-    "default_name": "bagel tumble 3024",
-    "verdict": "V",
-    "name": null,
-    "notes": null
+    "act": "g1227",
+    "group": "Gags — family B",
+    "default_name": "toast+toaster 1227",
+    "verdict": "X",
+    "name": "Baby on waffle",
+    "notes": "bad name, also stuttering indicating something is missing"
   },
   {
-    "act": "3019",
-    "group": "Food",
-    "default_name": "toast hold 3019",
-    "verdict": "V",
-    "name": "waffle",
-    "notes": "this is a round (belgian?) waffle"
-  },
-  {
-    "act": "3002",
-    "group": "Food",
-    "default_name": "golden toast 3002",
-    "verdict": "V",
-    "name": null,
-    "notes": null
-  },
-  {
-    "act": "2997",
-    "group": "Food",
-    "default_name": "burnt hold 2997",
-    "verdict": "V",
-    "name": "brown bread",
-    "notes": "this is not a burnt toast, but rather brown bread I think"
-  },
-  {
-    "act": "2979",
-    "group": "Food",
-    "default_name": "burnt tumble 2979",
-    "verdict": "V",
-    "name": "brown bread moving",
-    "notes": "this is brown bread (not burnt) moving sideways while overall maintaining a straight course"
-  },
-  {
-    "act": "2969",
-    "group": "Food",
-    "default_name": "winged toast 2969",
+    "act": "g1288",
+    "group": "Gags — family B",
+    "default_name": "MORPH / evolution (1288)",
     "verdict": "X",
     "name": null,
-    "notes": "this toast is not winged. it is static in space, possibly bright"
+    "notes": "After evolving, it devolves, then clips into future toaster for the rest of the flight path"
   },
   {
-    "act": "2974",
-    "group": "Food",
-    "default_name": "buttered toast 2974",
-    "verdict": "X",
-    "name": null,
-    "notes": "not buttered. static frame of golden.\nI think there should be buttered toast somewhere, and jammy toast somewhere."
-  },
-  {
-    "act": "3114",
-    "group": "Sky",
-    "default_name": "cloud 3114",
-    "verdict": null,
-    "name": null,
-    "notes": "all of the clouds look bitwise identical to me."
-  },
-  {
-    "act": "3239",
-    "group": "Sky",
-    "default_name": "moon 3239",
-    "verdict": "X",
-    "name": null,
-    "notes": "baby stuff, don't want it"
-  },
-  {
-    "act": "3244",
-    "group": "Sky",
-    "default_name": "cow-over-moon 3244",
-    "verdict": "X",
-    "name": null,
-    "notes": "baby stuff, don't want it"
-  },
-  {
-    "act": "3249",
-    "group": "Sky",
-    "default_name": "stars 3249",
-    "verdict": "X",
-    "name": null,
-    "notes": "baby stuff"
-  },
-  {
-    "act": "3254",
-    "group": "Sky",
-    "default_name": "stars 3254",
-    "verdict": "X",
-    "name": null,
-    "notes": "baby stuff"
-  },
-  {
-    "act": "3259",
-    "group": "Sky",
-    "default_name": "big star 3259",
-    "verdict": "X",
-    "name": null,
-    "notes": "baby stuff"
-  },
-  {
-    "act": "2421",
-    "group": "Gags",
-    "default_name": "power cord 2421",
-    "verdict": "V",
-    "name": null,
-    "notes": null
-  },
-  {
-    "act": "928",
-    "group": "Gags",
-    "default_name": "police chase 928",
-    "verdict": "X",
-    "name": "burning toaster",
-    "notes": "this is ok aside from the wrong name, and I know there IS a police chase somewhere.\nNote that the burnt toast should also have a \"fire crackling\" sound effect associated."
-  },
-  {
-    "act": "1288",
-    "group": "Gags",
-    "default_name": "evolution props 1288",
-    "verdict": "X",
-    "name": null,
-    "notes": "It should start as a regular toaster, then morph into the futuristic one (with a futuristic sound effect), then continue like this. There might be ones that start like this from the start, but if it's a \"gag\" then I think the morph is important."
-  },
-  {
-    "act": "658",
-    "group": "Gags",
+    "act": "g658",
+    "group": "Gags — family B",
     "default_name": "solo stunt 658",
     "verdict": "V",
     "name": null,
-    "notes": null
+    "notes": "Rowing-swimming toaster. Acceptable if intended."
   },
   {
-    "act": "792",
-    "group": "Gags",
-    "default_name": "toast juggle 792 (gag)",
-    "verdict": "X",
-    "name": "Toast goes in",
-    "notes": "This should be part of a sequence. An untoasted bread goes in, and then the toaster starts working. I think there's a sound effect, and I think a golden toast pops out afterwards."
-  },
-  {
-    "act": "807",
-    "group": "Gags",
-    "default_name": "toast juggle 807 (gag)",
-    "verdict": "V",
-    "name": null,
-    "notes": "This is a cont of 34, and note that the toast should continue as its own later on"
-  },
-  {
-    "act": "2458",
-    "group": "Gags",
-    "default_name": "diamond 2458",
-    "verdict": "X",
-    "name": null,
-    "notes": "the animation is broken (this is completely static), so not sure what's going on here. I think it's a chain accident where they bump into each other."
-  },
-  {
-    "act": "2910",
-    "group": "Gags",
-    "default_name": "finale 2910",
-    "verdict": "X",
-    "name": null,
-    "notes": "not sure what's special here,  so we might be missing something"
-  },
-  {
-    "act": "2239",
-    "group": "Gags",
-    "default_name": "head-on 2239",
-    "verdict": "V",
-    "name": "donkey hops",
-    "notes": "Not sure about the name. it's a game where person A goes to all fours, then person B jumps over them, then person B goes to all fours, then person A jumps over them etc."
-  },
-  {
-    "act": "2272",
-    "group": "Gags",
-    "default_name": "4-cross 2272",
-    "verdict": "V",
-    "name": "love waffles",
-    "notes": "Note that this is probably a onetime, check notes"
-  },
-  {
-    "act": "1361",
-    "group": "Gags",
-    "default_name": "upside-down 1361",
-    "verdict": "X",
-    "name": "hoola hoop",
-    "notes": "wrong name. hoola hoop, there is prob an upside down animation being missed"
-  },
-  {
-    "act": "1372",
-    "group": "Gags",
-    "default_name": "juggle 1372",
+    "act": "g928",
+    "group": "Gags — family B",
+    "default_name": "burning toaster (928)",
     "verdict": "V",
     "name": null,
     "notes": null
   },
   {
-    "act": "1213",
-    "group": "Gags",
-    "default_name": "toast+toaster 1213",
-    "verdict": null,
+    "act": "g1361",
+    "group": "Gags — family B",
+    "default_name": "hoola hoop (1361)",
+    "verdict": "V",
     "name": null,
-    "notes": "baby. we can include it because it's relatively harmless."
+    "notes": null
   },
   {
-    "act": "946",
-    "group": "Gags",
-    "default_name": "mega 946",
+    "act": "g1372",
+    "group": "Gags — family B",
+    "default_name": "toast juggle 1372",
+    "verdict": "V",
+    "name": null,
+    "notes": null
+  },
+  {
+    "act": "g2239",
+    "group": "Gags — family B",
+    "default_name": "leapfrog / donkey hops (2239)",
+    "verdict": "V",
+    "name": null,
+    "notes": "rename as you see fit, worried I poisoned you with donkey hops"
+  },
+  {
+    "act": "g1387",
+    "group": "Gags — family B",
+    "default_name": "bagel+toaster 1387",
+    "verdict": "V",
+    "name": null,
+    "notes": "This is the toaster riding a bagel. happy we found it."
+  },
+  {
+    "act": "g2272",
+    "group": "Gags — family B",
+    "default_name": "love waffles (2272)",
+    "verdict": "V",
+    "name": null,
+    "notes": null
+  },
+  {
+    "act": "g2298",
+    "group": "Gags — family B",
+    "default_name": "pair 2298",
+    "verdict": "V",
+    "name": null,
+    "notes": "name can be kissing pair"
+  },
+  {
+    "act": "g2421",
+    "group": "Gags — family C",
+    "default_name": "power cord (2421)",
     "verdict": "X",
     "name": null,
-    "notes": "I think this is part of a set where toaster A is flying normally, then toaster B is going very fast, causing toaster A to flip over (which is what this animation does)"
+    "notes": "Sounds include whistle, but not the conga music"
   },
   {
-    "act": "679",
-    "group": "Gags",
-    "default_name": "police card 679",
+    "act": "g2458",
+    "group": "Gags — family C",
+    "default_name": "DIAMOND — 4 toasters (2458)",
     "verdict": "X",
     "name": null,
-    "notes": "static. can't tell what's going on, probably the speeding toaster colliding with the normal toaster from 43"
+    "notes": "unclear what I'm seeing here. I think what should happen is that the toasters start in a line, then first one suddenly stops and changes lane and they all follow it. this is not the case atm as they spawn not at the same line, and start as 6 toasters, 3 of them frozen and vanish after a while"
   },
   {
-    "act": "2736",
-    "group": "Gags",
-    "default_name": "3-wedge 2736",
-    "verdict": null,
+    "act": "g2736",
+    "group": "Gags — family C",
+    "default_name": "3-wedge (2736)",
+    "verdict": "X",
     "name": null,
-    "notes": "not sure what I'm seeing aside from 3 toaster s in a loose V shape"
+    "notes": "Not sure if intentional, but it's 3 toasters flying in v wedge competely synced, nothing else happening"
   },
   {
-    "act": "3274",
-    "group": "(baby) food",
-    "default_name": "duck 3274",
-    "verdict": null,
-    "name": "Die",
-    "notes": null
+    "act": "g2910",
+    "group": "Gags — family C",
+    "default_name": "finale — 3 (2910)",
+    "verdict": "X",
+    "name": null,
+    "notes": "the sync lane change is good, but it ends abruplty before the animation is complete, and I don't think they reach the \"correct\" lane"
   },
   {
-    "act": "3286",
-    "group": "(baby) food",
-    "default_name": "bottle 3286",
-    "verdict": null,
-    "name": "Rattler",
-    "notes": null
+    "act": "g1402",
+    "group": "Gags — family C",
+    "default_name": "big formation / conga? (1402)",
+    "verdict": "X",
+    "name": null,
+    "notes": "there are two extra frozen sprites at the top, and the positioning and sync is off, but the intended here is that both are flying in the same lane, the first toaster is being slow, the second one tries to switch lane but the first also switches lanes, blocking second one, this happening some times."
   },
   {
-    "act": "3291",
-    "group": "(baby) food",
-    "default_name": "pacifier 3291",
-    "verdict": null,
-    "name": "Bottle",
-    "notes": null
+    "act": "g1672",
+    "group": "Gags — family C",
+    "default_name": "toaster+upside-down 1672",
+    "verdict": "X",
+    "name": null,
+    "notes": "not sure what I'm to see. starts with a single flying toaster, transitioning into it flying and another one standing on top of it in titanic pose"
   },
   {
-    "act": "3296",
-    "group": "(baby) food",
-    "default_name": "teddy 3296",
-    "verdict": null,
-    "name": "Pacifier",
-    "notes": null
+    "act": "g2080",
+    "group": "Gags — family C",
+    "default_name": "pair formation 2080",
+    "verdict": "X",
+    "name": null,
+    "notes": "I think broken leftovers of several animations. I see juggling, slowing down"
   },
   {
-    "act": "3301",
-    "group": "(baby) food",
-    "default_name": "crib 3301",
-    "verdict": null,
-    "name": "Teddy",
-    "notes": null
+    "act": "g679",
+    "group": "Gags — family C",
+    "default_name": "POLICE chase — 3 (679)",
+    "verdict": "X",
+    "name": null,
+    "notes": "playback in debug console is wrong. multple frozen sprites at top, police sequence is not displayed properly"
+  },
+  {
+    "act": "g1349",
+    "group": "Gags — family C",
+    "default_name": "police escort (1349)",
+    "verdict": "X",
+    "name": null,
+    "notes": "not sure if meant to play by itself. police sfx is playing, and it is a singular police toaster"
+  },
+  {
+    "act": "g879",
+    "group": "Gags — family C",
+    "default_name": "bagel-eyes — 2 (879)",
+    "verdict": "X",
+    "name": null,
+    "notes": "I think the debug console doesn't cleanup properly or there's bleeding. the core bagel eyes is doing ok, but there's a frozen sprite at the top, and a speeding toaster which I think belongs to 1349"
   }
 ]
