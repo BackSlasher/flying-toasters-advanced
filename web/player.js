@@ -535,18 +535,29 @@ class MultiGag {
     (spec.sounds || []).forEach(s => sv.playSound(s));
   }
   tick() {
-    let alive = 0;
+    // Phase-gate barrier (engine run loop 0x10839): a channel that reaches its
+    // sequence end HOLDS its last frame until every channel is at a boundary,
+    // then all advance together — keeps formations locked instead of drifting.
+    let alive = 0, live = 0, waiting = 0;
     for (const c of this.ch) {
       if (c.dead) continue;
-      if (c.p.tick() === 'end') {
-        c.ci++;
-        if (c.ci < c.chain.length) c.p.enter(c.chain[c.ci]);
-        else if (c.p.offscreen()) { c.dead = true; continue; }
-        else c.p.enter(93);                 // choreography done -> disperse
+      live++;
+      if (!c.atBoundary) {
+        if (c.p.tick() === 'end') c.atBoundary = true;
       }
+      if (c.atBoundary) waiting++;
       if (!c.p.offscreen(0)) c._arr = true;
       if (c.p.offscreen(40) && (c._arr || (c._age = (c._age || 0) + 1) > 250)) c.dead = true;
       if (!c.dead) alive++;
+    }
+    if (live > 0 && waiting === live) {          // barrier: all at a boundary
+      for (const c of this.ch) {
+        if (c.dead) continue;
+        c.atBoundary = false;
+        c.ci++;
+        if (c.ci < c.chain.length) c.p.enter(c.chain[c.ci]);
+        else c.p.enter(93);                      // choreography done -> disperse
+      }
     }
     if (!alive) this.dead = true;
   }

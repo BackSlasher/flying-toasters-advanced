@@ -151,5 +151,8 @@ speeding 520), police 679 (3ch), 1402/2080 (long orphans), toast-juggle 792
 - [x] Entry placement (0x17378): lane<split=top edge, lane>=split=right edge
       (x=baseX+(lane-split)*160+240 / baseX+80; y=baseY-80 / baseY+(lane-split)*80).
       Wired into MultiGag — faithful formation geometry.
-- [ ] Phase-gate timing between channels (the per-boundary handshake).
-- [ ] Identify the conga (1402 candidate: 122f+130f companions) vs other formations.
+- [x] Phase-gate timing: barrier-sync in MultiGag (channels hold at their
+      sequence boundary until all are ready, then advance together — engine
+      run loop 0x10839). Keeps formations locked.
+- [~] Conga: 1402 (long companions) is the candidate; reads as a following
+      formation but not confirmed single-file. Needs user eyes on the original.
