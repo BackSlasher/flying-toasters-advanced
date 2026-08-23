@@ -810,7 +810,7 @@ class MultiGag {
       else p.placeCenter(this.mainX, this.mainY);
       // the prop keeps its OWN sequence (a toast tumbles/drifts as a toast) —
       // it drifts off on its own; no flight-flap append (that flapped the toast).
-      this.ch.push({ p, chain: [pl], ci: 0, dead: false });
+      this.ch.push({ p, chain: [pl], ci: 0, dead: false, propChan: true });
     }
     this.pendingProps = [];
   }
@@ -872,6 +872,11 @@ class MultiGag {
                                 m.p.oy + (it.rect[1] + it.rect[3]) / 2 + mf.dy);
         else c.p.placeCenter((mb[0] + mb[2]) / 2, (mb[1] + mb[3]) / 2);
       }
+      // Broken-off props live only as long as the GAG OBJECT: the engine
+      // despawns the whole FlyingBigGag (all channels) when main's exit
+      // completes — the rider gets ONE dive, not encores until it drifts off
+      // (the wild "still looping the tiptoe" report).
+      if (m.dead) for (const c of this.ch) if (c.propChan) c.dead = true;
     }
     if (!alive) {
       this.dead = true;
