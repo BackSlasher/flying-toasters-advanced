@@ -638,14 +638,30 @@ class MultiGag {
       return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
     };
     const isFormation = l => seqLen(l) >= 40 && disp(l) >= 250;
-    // formations are authored in the 640x480 design box; center it in the field
-    const offX = Math.round((DESIGN_W - KAR_W) / 2), offY = Math.round((DESIGN_H - KAR_H) / 2);
+    // Formation arcs and templates are authored in the original 640x480 SCREEN
+    // space with entry semantics relative to the top-RIGHT corner (all motion is
+    // down-left; arcs like 2473 start off the box's top-right, cards like 1402's
+    // pair sit at the right edge). Anchor the design box at the canvas top-right
+    // so they FLY IN from the corner instead of materializing mid-screen
+    // (centered anchoring caused the 1402/1782 "appeared in midair" reports).
+    const offX = DESIGN_W - KAR_W, offY = 0;
     // Placement TEMPLATE (engine ground truth): the handler queues the formed
     // multi-body sequence just long enough for GetChannelRect(slot) to read its
     // authored slot rects, SetCenterPoints each channel there, then REPLACES the
     // queue with the channel's real single-body chain (the template never plays).
     // 2736's wedge = three act-toasters launched at the wedge's slot positions.
-    const template = spec.template;
+    let template = spec.template;
+    if (!template && Object.keys(slots).length) {
+      // layout CARD variant: a 1-frame multi-body label queued on main purely to
+      // carry the slot rects (1402's side-by-side pair, 679) — never replaced
+      // (its queue just ends), so the interpreter can't flag it; detect by shape.
+      for (const l of (spec.chans.main || [])) {
+        if (l !== 3 && l !== 93 && seqLen(l) === 1) {
+          const f = comp.frame(l);
+          if (f && f.items.length >= 2) { template = l; break; }
+        }
+      }
+    }
     let tplFrame = null;
     if (template) {
       for (const fn of seqOf(template)) {
@@ -733,9 +749,13 @@ class MultiGag {
         // engine SetCenterPoint(GetChannelRect(slot)): launch this channel at
         // its authored slot rect of the (never-played) template sequence, then
         // let its own chain fly from there — synchronized group formation.
+        // Templates are authored in the original 640x480 SCREEN space with
+        // entry positions relative to the top-RIGHT corner (all motion is
+        // down-left); anchor the design box there so entry-corner cards
+        // (1402's pair at x 503-760) fly IN instead of materializing centered.
         const r = tplRect(k);
-        cx = offX + (r[0] + r[2]) / 2 + (tplFrame.dx || 0);
-        cy = offY + (r[1] + r[3]) / 2 + (tplFrame.dy || 0);
+        cx = (DESIGN_W - KAR_W) + (r[0] + r[2]) / 2 + (tplFrame.dx || 0);
+        cy = (r[1] + r[3]) / 2 + (tplFrame.dy || 0);
         p.placeCenter(cx, cy);
       } else {
         // channel i enters at the i-th lane of the gag's claimed footprint
@@ -748,6 +768,18 @@ class MultiGag {
       if (k === 'main') { this.mainCh = rec; rec.drawSlots = mainDrawSlots; }
       this.ch.push(rec);
     });
+    // Arc groups (formation-placed channels) start at their AUTHORED positions,
+    // some of which sat visibly near the 640x480 top edge in the original (2458's
+    // low arc starts ~13px in — an authentic pop-in). On the larger canvas that
+    // reads as materializing mid-screen, so shift the whole group rigidly right
+    // until every arc channel starts off-canvas: relative choreography (the
+    // formation shape and sweep) is preserved, the pop-in becomes a fly-in.
+    const arcChans = this.ch.filter(c => c.formation);
+    if (arcChans.length) {
+      let dx = 0;
+      for (const c of arcChans) dx = Math.max(dx, DESIGN_W - c.p.bounds()[0] + 10);
+      if (dx > 0 && dx < DESIGN_W) for (const c of arcChans) c.p.ox += dx;
+    }
     if (this.mainX == null) { this.mainX = DESIGN_W / 2; this.mainY = DESIGN_H / 2; }
     // props that BREAK OFF the main toaster mid-gag (engine Split, chan vtbl+0xc8:
     // main.Split(subCh, contLabel, propLabel) — 807 splits the golden toast 2974,
@@ -790,8 +822,16 @@ class MultiGag {
       if (c.p.tick() === 'end') {
         c.ci++;
         // main finished its gag sequence → break off any pending props HERE, at
-        // the toaster's live position (the engine's split moment).
-        if (c === this.mainCh && c.ci === 1 && this.pendingProps.length) this._splitProps();
+        // the toaster's live position (the engine's split moment: the handler
+        // calls Split when main's queued gag seq drains). The chain now opens
+        // with fly-in flight labels, so "the gag sequence" = the FIRST REAL
+        // (non-disperse) label — splitting at ci===1 fired at the fly-in's end,
+        // spawning 807's toast at the pop's START (it flew off before the
+        // animation finished — the "toast vanished" report).
+        if (c === this.mainCh && this.pendingProps.length) {
+          const firstReal = c.chain.findIndex(l => l !== 3 && l !== 93);
+          if (firstReal >= 0 && c.ci === firstReal + 1) this._splitProps();
+        }
         const next = c.ci < c.chain.length ? c.chain[c.ci] : c.chain[c.chain.length - 1];
         // resuming plain flight (3/93) after a gag = the engine handing the
         // toaster back to the flight state machine, which continues from the
