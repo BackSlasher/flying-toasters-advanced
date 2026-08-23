@@ -109,12 +109,29 @@ class Player {
     if (!seq) return false;
     const target = this.c.frame(label);
     // link frame: label-1 if it exists (sub-sequence), else the label frame.
+    // (Engine: GetLinkFrame vtbl+0x110 — the label-1 convention is gated on
+    // channel flag [+0x83] and frame existence; falls back to the label.)
     // (The hold-transform loops' divergent drifts — 307 up-left, 324 down-right
     // mirrored, 638 slow-left — are AUTHORED per-frame displacements: the 2736
     // wedge deliberately scatters after its acts. Not an alignment bug.)
     const linkNo = this.c.frames[String(label - 1)] ? label - 1 : label;
+    // SELF-LINK WRAP (looping a sequence that has NO separate link frame, e.g.
+    // 1227's 3-frame loop): aligning last->label holds the sprite still for the
+    // seam tick — a visible stutter on short loops ("start stop start stop").
+    // The sequence's authored per-frame velocity is ground truth; carry it
+    // through the seam so progression stays continuous at the authored speed.
+    const selfWrap = label === this.label && linkNo === label && seq.length > 1;
     const link = this.c.frame(linkNo);
     this._alignCommonArt(this.prevFrame, link);
+    if (selfWrap) {
+      const ctr = f => [(f.rect[0] + f.rect[2]) / 2 + f.dx,
+                        (f.rect[1] + f.rect[3]) / 2 + f.dy];
+      const a = this.c.frame(seq[0]), b = this.c.frame(seq[seq.length - 1]);
+      if (a && b) {
+        this.ox += Math.round((ctr(b)[0] - ctr(a)[0]) / (seq.length - 1));
+        this.oy += Math.round((ctr(b)[1] - ctr(a)[1]) / (seq.length - 1));
+      }
+    }
     this.seq = seq;
     this.idx = seq.indexOf(label);
     this.label = label;
