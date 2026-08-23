@@ -438,3 +438,70 @@ scenarios except the morph 1288 (its global 3-phase counter under-runs when
 RandShort collapses to 0; the port hand-models its verified arc). The port places
 template-slot channels at the template frame's authored rects (player.js tplRect)
 and lets each channel fly its chain.
+
+## Entry lanes, karaoke reveal, coordinate space (2026-08-24 session)
+
+### The gag entry-lane system (fully extracted + ported)
+- Field init 0x416d0d + ctor 0x417113: extended screen box (+160px margins each
+  side, height rounded up to 80) divides into discrete diagonal lanes.
+  `w80 = ceil(W/80)+4; h80 = ceil(H/80)+4; split = (w80-5)>>1;
+  total = h80+split-4` (640x480 -> 3 top-edge + 6 right-edge lanes). The field
+  is built from the REAL screen rect — lanes scale with resolution.
+- Placement 0x417378(field, lanes, split, topLane, band): pick
+  `lane = topLane + RandShort(band)`, require `lanes` CONSECUTIVE free lanes
+  (footprint, offset `split`); on failure return sentinel 0xfc18 = no spawn.
+  Entry: lane<splitThr -> top edge (x step 160, y=top-80); else right edge
+  (x=right+80, y step 80).
+- Occupancy 0x4174dc: per-lane busy flag + claim timestamp, stale timeout
+  0x61a8 ms (25s). Claim/release helpers 0x417524/0x417550. Gags can never
+  overlap mid-air. A second lane-array pair ([field+0x2c]/[0x30]) exists —
+  likely the regular-actor lanes; NOT yet wired in the port.
+- Per-scenario band: gagobj [+0x9c] top lane / [+0xa0] band, clamped at 0x1641e.
+  Config forms extracted as cfg.laneTop ('split' = right-edge lanes only —
+  police 1349) and cfg.laneBandK (band = total - top - K). The gag object is a
+  singleton: unconfigured scenarios REUSE the previous gag's band (stale-state,
+  reproduced via sv._laneBand). gagobj copies at 0x178da: [+0x1c]=total,
+  [+0x20]/[+0x2c]=split threshold.
+
+### Karaoke reveal is a box-blit, not an overlay
+The red syllable art's ink sits a few px off the white line's inside its box
+(authored); the engine hides this because the red art's opaque black background
+REPLACES the region. With dropBlackBox transparency, overlaying let the white
+peek around the red ("doubled text"). Port: compose on an offscreen, clearRect
+each sung syllable's rect, then draw its glyph — replace semantics with a
+transparent banner.
+
+### Prop lifetime
+A Split prop lives only as long as the gag object (engine despawns the whole
+FlyingBigGag when its phase machine completes). Port: prop channels dissolve
+when main dies. During main's exit drift the prop re-loops its sequence
+(idle-channel behavior) — the rider's ~2-3 dives are that window.
+
+### Coordinate space: authored 640x480, engine uses it RAW
+Absolute-coordinate choreography (arcs, template/card slot rects, karaoke line
+layouts) is authored in a nominal 640x480 screen space. GetChannelRect /
+SetCenterPoint use the frame rects with NO scaling or screen-relative offset —
+on >640px displays the original simply ran the coords raw (top-left region).
+Census: of 25 absolute placements, 7 are authored off-box staging (fly-ins),
+18 start on-screen (authentic pop-ins, masked by 1996 density/CRT).
+The port's two DOCUMENTED adaptations (player.js group block):
+ 1. proportional anchor — rigid group translate so the authored bbox centre
+    lands at the same screen fraction (geometry/speeds exactly authored);
+ 2. fly-in shift — groups whose authored start is on-screen shift right until
+    every member starts off-canvas.
+Layout CARDS (1-frame multi-body labels queued on main purely to carry slot
+rects — 1402's pair, 679) are detected by shape in the player and treated as
+templates; the interpreter can't flag them (never replaced, their queue just
+ends).
+
+### Split timing
+The engine Splits when main's queued gag sequence drains. With fly-in chains
+the port fires _splitProps when the chain's FIRST REAL (non-disperse) sequence
+completes — 807's toast detaches at the pop's end, 1672's rider at its seq end.
+
+### Micro-deviations (known, accepted)
+- 456 picks 0/1/2 act loops per spawn via three handler variants (gate operand
+  not yet extracted); port always plays the 2-loop variant.
+- 1288 stays hand-modeled (global 3-phase counter); its 2-5 loop random
+  lead-in IS reproduced (leadIn mechanism, RandShort(4)+2).
+- SCEN_SFX table hand-written (flag-armed PlayNoise path unextracted, #6).
