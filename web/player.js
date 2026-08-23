@@ -739,6 +739,7 @@ class MultiGag {
       const p = new Player(comp, sv.art, sv);
       p.enter(chain[0]);
       let cx, cy;
+      let tplPlaced = false;
       if (formation) {
         // authored absolute coords carry the arc; flight then drifts it out
         p.ox = offX; p.oy = offY;
@@ -760,6 +761,7 @@ class MultiGag {
         cx = (DESIGN_W - KAR_W) + (r[0] + r[2]) / 2 + (tplFrame.dx || 0);
         cy = (r[1] + r[3]) / 2 + (tplFrame.dy || 0);
         p.placeCenter(cx, cy);
+        tplPlaced = true;
       } else {
         // channel i enters at the i-th lane of the gag's claimed footprint
         // (cfg.lanes consecutive lanes anchored cfg.split-in at `lane`)
@@ -767,21 +769,22 @@ class MultiGag {
         p.placeCenter(cx, cy);
       }
       if (this.mainX == null) { this.mainX = cx; this.mainY = cy; }
-      const rec = { p, chain, ci: 0, dead: false, formation, slotFollow };
+      const rec = { p, chain, ci: 0, dead: false, formation, slotFollow, tplPlaced };
       if (k === 'main') { this.mainCh = rec; rec.drawSlots = mainDrawSlots; }
       this.ch.push(rec);
     });
-    // Arc groups (formation-placed channels) start at their AUTHORED positions,
-    // some of which sat visibly near the 640x480 top edge in the original (2458's
-    // low arc starts ~13px in — an authentic pop-in). On the larger canvas that
-    // reads as materializing mid-screen, so shift the whole group rigidly right
-    // until every arc channel starts off-canvas: relative choreography (the
-    // formation shape and sweep) is preserved, the pop-in becomes a fly-in.
-    const arcChans = this.ch.filter(c => c.formation);
-    if (arcChans.length) {
+    // Arc groups and template groups start at their AUTHORED positions, some of
+    // which sat visibly near the 640x480 top edge in the original (2458's low
+    // arc ~13px in; 2736's wedge slots mid-box) — an authentic pop-in that reads
+    // as materializing mid-screen on the larger canvas. Shift the whole group
+    // rigidly right until every member starts off-canvas: relative choreography
+    // (the formation shape and sweep/fly-in) is preserved, the pop-in becomes a
+    // fly-in — the wedge now ENTERS as three flying toasters.
+    const grpChans = this.ch.filter(c => c.formation || c.tplPlaced);
+    if (grpChans.length) {
       let dx = 0;
-      for (const c of arcChans) dx = Math.max(dx, DESIGN_W - c.p.bounds()[0] + 10);
-      if (dx > 0 && dx < DESIGN_W) for (const c of arcChans) c.p.ox += dx;
+      for (const c of grpChans) dx = Math.max(dx, DESIGN_W - c.p.bounds()[0] + 10);
+      if (dx > 0 && dx < DESIGN_W) for (const c of grpChans) c.p.ox += dx;
     }
     if (this.mainX == null) { this.mainX = DESIGN_W / 2; this.mainY = DESIGN_H / 2; }
     // props that BREAK OFF the main toaster mid-gag (engine Split, chan vtbl+0xc8:
