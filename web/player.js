@@ -585,6 +585,24 @@ class MultiGag {
     const isFormation = l => seqLen(l) >= 40 && disp(l) >= 250;
     // formations are authored in the 640x480 design box; center it in the field
     const offX = Math.round((DESIGN_W - KAR_W) / 2), offY = Math.round((DESIGN_H - KAR_H) / 2);
+    // Placement TEMPLATE (engine ground truth): the handler queues the formed
+    // multi-body sequence just long enough for GetChannelRect(slot) to read its
+    // authored slot rects, SetCenterPoints each channel there, then REPLACES the
+    // queue with the channel's real single-body chain (the template never plays).
+    // 2736's wedge = three act-toasters launched at the wedge's slot positions.
+    const template = spec.template;
+    let tplFrame = null;
+    if (template) {
+      for (const fn of seqOf(template)) {
+        const f = comp.frame(fn);
+        if (f && (!tplFrame || f.items.length > tplFrame.items.length)) tplFrame = f;
+      }
+    }
+    const tplRect = k => {
+      if (!tplFrame || slots[k] == null) return null;
+      const it = tplFrame.items.find(x => x.artch === slots[k]);
+      return it ? it.rect : null;
+    };
     this.ch = [];
     order.forEach((k, i) => {
       const raw = spec.chans[k].slice();
@@ -644,6 +662,14 @@ class MultiGag {
       } else if (slotFollow != null && this.mainCh) {
         // assembly slot-body: parked near main; positioned onto its slot each tick
         cx = this.mainX; cy = this.mainY;
+        p.placeCenter(cx, cy);
+      } else if (tplRect(k)) {
+        // engine SetCenterPoint(GetChannelRect(slot)): launch this channel at
+        // its authored slot rect of the (never-played) template sequence, then
+        // let its own chain fly from there — synchronized group formation.
+        const r = tplRect(k);
+        cx = offX + (r[0] + r[2]) / 2 + (tplFrame.dx || 0);
+        cy = offY + (r[1] + r[3]) / 2 + (tplFrame.dy || 0);
         p.placeCenter(cx, cy);
       } else {
         cx = i < split ? baseX + (i - split) * 160 + 240 : baseX + 80;

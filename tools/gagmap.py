@@ -459,33 +459,71 @@ def _collapse_cycle(seq):
     return seq
 
 
-def interp_handler(h, end, max_ticks=60):
-    """Simulate the handler; return ({channel: [labels]}, [props]) in true
-    execution order."""
-    st = {'flags': {}, 'mem': {}, 'done': {c: 1 for c in CH.values()}}
-    chains = {}
+def interp_handler(h, end, max_ticks=120):
+    """Simulate the handler; return ({channel: [labels]}, [props], {templates})
+    in true execution order.
+
+    Queue semantics (from the primitives): NextSequence(L) = next:=L, pending:=[]
+    — vtbl 0x128 (@0x19df5) sets [ch+0x48] and 0x134 (@0x1ae17) clears the
+    16-entry pending list at [ch+0x62]; NextSequences(L0..Ln) = next:=L0,
+    pending:=[L1..Ln] (0x138 @0x1ae25 appends). So within one handler run the
+    LAST queue call on a channel wins — REPLACE, not append. [ch+0x4a] (done)
+    means the whole queue has drained; the driver acts on the handler when its
+    channels go idle, so the simulation runs the handler only when every active
+    channel's queue is empty (running mid-drain would wrongly wipe in-flight
+    chains — 274's act chain died that way under a per-tick model).
+
+    A real label REPLACED before it ever played is a placement TEMPLATE: the
+    handler queues the formed multi-body sequence (2736 wedge, 879's 875) just
+    long enough for GetChannelRect to read its authored slot rects, SetCenter-
+    Points the channels there, then replaces the queue with each channel's real
+    single-body chain. Formations are synchronized solo flyers, not one sprite.
+    """
+    st = {'flags': {}, 'mem': {}, 'done': {}}
+    queue = {c: [] for c in CH.values()}          # [next, pending...]
+    played = {c: [] for c in CH.values()}
+    active = set()                                # channels ever queued
+    templates = {}
     props = []
     seen_states = set()
     for _ in range(max_ticks):
-        for c in CH.values():                  # queued seqs complete between ticks
-            st['done'][c] = 1
+        # advance channels: enter next queued seq; done = queue fully drained
+        for c in CH.values():
+            if queue[c]:
+                played[c].append(queue[c].pop(0))
+                st['done'][c] = 0 if queue[c] else 1
+            else:
+                st['done'][c] = 1
+        if active and any(queue[c] for c in active):
+            continue                              # wait for the drain
         log = []
         queued = _run_tick(h, end, st, log)
         for ev in log:
             if ev[0] == 'seq':
                 ch, labels = ev[1], ev[2]
-                chains.setdefault(ch, [])
-                for L in labels:
-                    if not chains[ch] or chains[ch][-1] != L:
-                        chains[ch].append(L)
+                if queue[ch] and not played[ch] and queue[ch][0] >= 0x100:
+                    templates.setdefault(ch, queue[ch][0])
+                queue[ch] = list(labels)          # REPLACE
+                active.add(ch)
             elif ev[0] == 'prop' and ev[2] not in props:
                 props.append(ev[2])
         state = (tuple(sorted(st['flags'].items())),
-                 tuple(sorted(st['mem'].items())))
-        if not queued or state in seen_states:
+                 tuple(sorted(st['mem'].items())),
+                 tuple((c, tuple(q)) for c, q in sorted(queue.items())))
+        if (not queued and not any(queue.values())) or state in seen_states:
             break
         seen_states.add(state)
-    return {c: _collapse_cycle(v) for c, v in chains.items() if v}, props
+    for c in CH.values():                         # drain the remainder
+        played[c].extend(queue[c])
+    chains = {}
+    for c, seq in played.items():
+        dd = []
+        for L in seq:
+            if not dd or dd[-1] != L:
+                dd.append(L)
+        if dd:
+            chains[c] = _collapse_cycle(dd)
+    return chains, props, templates
 
 
 def choreography():
@@ -577,13 +615,15 @@ def choreography():
             for ch, slot in zip(setcenters, getrects):
                 if ch and ch not in slots:
                     slots[ch] = slot
-            # Execution-ordered chains from the state-machine interpreter — for
-            # single-body gags only. Formations (have slots) and the global-phase
-            # morph 1288 exercise semantics the interpreter doesn't model yet
-            # (cross-channel [0x4a] gating, 0x80 queue-replacement, the slot
-            # machinery); their flattened chains are visually verified, keep them.
-            if not slots and scen != 0x508:
-                ichains, iprops = interp_handler(h, nxt_h)
+            # Execution-ordered chains from the state-machine interpreter (all
+            # gags except the global-phase morph 1288, whose loop counter it
+            # under-simulates with RandShort->0; that one stays hand-modeled in
+            # the port). Formations come out as their engine truth: a placement
+            # TEMPLATE (the formed sequence, queued just to read slot rects) plus
+            # per-channel single-body chains.
+            templates = {}
+            if scen != 0x508:
+                ichains, iprops, templates = interp_handler(h, nxt_h)
                 if ichains:
                     chans = ichains
                     for p in iprops:
@@ -597,6 +637,8 @@ def choreography():
                     e['props'] = props
                 if slots:
                     e['slots'] = slots
+                if templates.get('main'):
+                    e['template'] = templates['main']
                 table[scen] = e
     return table
 
