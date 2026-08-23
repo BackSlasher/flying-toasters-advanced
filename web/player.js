@@ -169,9 +169,10 @@ const MOON = 3239, COW = 3244, STARS = 3249;
 const FAM_A = [1782, 1928, 792, 807, 749, 861, 274, 295, 312, 329, 558, 456];
 const FAM_B = [2391, 2406, 1213, 1227, 1288, 658, 928, 1361, 1372, 2239, 1387, 2272, 2298];
 const FAM_C = [2421, 2458, 2736, 2910, 1402, 1672, 2080, 679, 1349, 879];
-// scenario-specific SFX played from the run loop (RE-ENGINE.md sound map) —
-// not in the glue handlers, so not in gags.json.
-const SCEN_SFX = { 928: 22001, 679: 22005, 1349: 22005, 1288: 22012 };
+// scenario-specific SFX (RE-ENGINE.md sound map). WAV 22010 is NOT a universal
+// gag whoosh — the enable flag +0x84 is armed only for the power-cord gag 2421
+// (0x128af). Most gags are silent (music only); these are the exceptions.
+const SCEN_SFX = { 2421: 22010, 928: 22001, 679: 22005, 1349: 22005, 1288: 22012 };
 
 
 class ToasterActor {
@@ -483,9 +484,8 @@ class MultiGag {
       p.placeCenter(cx, cy);
       this.ch.push({ p, chain, ci: 0, dead: false });
     });
-    sv.playSound(22010);                         // gag whoosh
     (spec.sounds || []).forEach(s => sv.playSound(s));
-    if (SCEN_SFX[scen]) sv.playSound(SCEN_SFX[scen]);   // fire/police/morph
+    if (SCEN_SFX[scen]) sv.playSound(SCEN_SFX[scen]);   // cord/fire/police/morph
   }
   tick() {
     // Phase-gate barrier (engine run loop 0x10839): a channel that reaches its
