@@ -1197,13 +1197,13 @@ async function boot() {
   // morph: extraction left a trailing 1288 (futuristic) after the devolve 1303,
   // which "clipped into future toaster"; end on morph-back then plain flight
   if (gags['1288']) gags['1288'].chans = { main: [1233, 1288, 1303] };
-  // BreakOffProp gags (engine vtbl+0xc8, missed by the QueueSequence extractor):
-  // 807 splits the toast (2974) off the toaster; 1672 splits off a rider (1734)
-  // 807's main queue is just disperse ([3,3]) — the toss animation IS the
-  // scenario's own sequence 807 (played once via the self-contained fallback);
-  // it breaks off a golden toast (2974) that flies on. Just wire the prop.
-  if (gags['807']) gags['807'].props = [2974];
-  if (gags['1672']) { gags['1672'].chans = { main: [1672, 1686] }; gags['1672'].props = [1734]; }
+  // BreakOffProp gags: the props (807 -> golden toast 2974, 1672 -> rider 1734)
+  // now come straight from the extractor's Split(vtbl+0xc8) scan, so no hand-wired
+  // prop lists here. 1672 still needs its main order patched: the split's
+  // continuation (1686) is queued in the handler's ONGOING branch, which the
+  // linear-sweep extractor visits before the INIT branch, so it can't yet order
+  // [1672, 1686] on its own (awaits execution-ordered extraction).
+  if (gags['1672']) gags['1672'].chans = { main: [1672, 1686] };
   const saver = new Screensaver({
     art, karArt,
     compound: new Compound(comp22000),

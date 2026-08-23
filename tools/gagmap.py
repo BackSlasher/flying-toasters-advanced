@@ -219,6 +219,23 @@ def extract_handler(rva, end=None, limit=400):
             elif off == '98':                        # SetCenterPoint(this, ...)
                 ch = next((v for t, v in reversed(stack) if t == 'ch'), None)
                 out.append((ch, None, 'setcenter', None))
+            elif off == 'c8':
+                # Split(this, subCh, contLabel, propLabel) — the copy helper 0xdc
+                # clones this-channel's transform to subCh, then NextSequence(subCh,
+                # prop) and NextSequence(this, cont). cdecl push order is
+                # propLabel, contLabel, subCh, this -> imms=[prop, cont]. The prop
+                # (a real sprite: golden toast 2974 for 807, rider 1734 for 1672)
+                # becomes a broken-off entity; the cont continues THIS channel.
+                # NOTE: cont (this-channel's post-split continuation) is queued in
+                # the ONGOING branch, which the linear sweep visits BEFORE the INIT
+                # branch, so appending it here would mis-order the chain. Emit only
+                # the prop (unordered set, safe); the cont awaits execution-ordered
+                # extraction. (1672's [1672,1686] order still needs its boot patch.)
+                ims = [v for t, v in stack if t == 'imm']
+                thisch = next((v for t, v in reversed(stack) if t == 'ch'), None)
+                prop = ims[0] if ims else None
+                if thisch and prop is not None and prop >= 0x100:
+                    out.append((thisch, prop, 'prop', None))
             stack = []
         rva = nxt(rva)
         steps += 1
@@ -244,11 +261,15 @@ def choreography():
             chans = {}
             hold = {}                                # channels whose transform loops offscreen
             sounds = []
+            props = []                               # Split() broken-off entities
             getrects = []                            # GetChannelRect slots, in order
             setcenters = []                          # SetCenterPoint channels, in order
             for ch, val, kind, loop in ops:
                 if kind == 'snd':
                     sounds.append(val - 0x55f0 + 22000)
+                elif kind == 'prop':
+                    if val not in props:
+                        props.append(val)
                 elif kind == 'getrect':
                     getrects.append(val)
                 elif kind == 'setcenter':
@@ -281,6 +302,8 @@ def choreography():
                 e = {'chans': chans, 'sounds': sounds}
                 if hold:
                     e['hold'] = hold
+                if props:
+                    e['props'] = props
                 # Formation assembly: GetChannelRect(slot) results are consumed by
                 # SetCenterPoint(channel) calls positionally — pair them to learn
                 # which body-slot of the main's formed sequence each channel snaps

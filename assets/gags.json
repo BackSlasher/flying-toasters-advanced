@@ -144,6 +144,9 @@
    ]
   },
   "sounds": [],
+  "props": [
+   2974
+  ],
   "cfg": {
    "weight": 2,
    "lanes": 2,
@@ -381,6 +384,9 @@
    ]
   },
   "sounds": [],
+  "props": [
+   1734
+  ],
   "cfg": {
    "weight": 2,
    "lanes": 5,
