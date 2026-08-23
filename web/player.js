@@ -851,47 +851,23 @@ class Karaoke {
     const lineTop = (fr.items.find(i => i.artch === 1) || { rect: [0, 266] }).rect[1];
     const kx = Math.round((DESIGN_W - KAR_W) / 2);
     const ky = DESIGN_H - 64 - lineTop;
-    // The line is ONE clean WHITE sprite (artch 1). The engine's per-syllable RED
-    // glyph arts (artch>1) have overlapping/mis-tiled bounding boxes that garble
-    // when stamped, so instead we keep the white sprite and TINT it red up to the
-    // sung cursor: draw white, then `source-atop` a red fill over the sung region
-    // recolors exactly the glyph pixels (respecting their alpha) — a clean
-    // left-to-right red wipe, authentic font, no overlap/fringe. The cursor is the
-    // right edge of the furthest sung syllable (engine reveal = a range going red).
-    if (!this._oc) this._oc = document.createElement('canvas');
-    const oc = this._oc;
-    if (oc.width !== KAR_W) { oc.width = KAR_W; oc.height = KAR_H; }
-    const octx = oc.getContext('2d');
-    octx.clearRect(0, 0, KAR_W, KAR_H);
+    // Authentic per-syllable reveal (engine ground truth): draw the WHITE line
+    // sprite (artch 1), then overlay each SUNG syllable's own RED glyph art
+    // (artch>1) at its authored rect. The red glyphs decode cleanly now that the
+    // RLID op-0 row-reference decoder bug is fixed — previously they were garbled
+    // (blank scanline gaps), which is why an earlier version faked the wipe with a
+    // multiply-tint. That approximation (and its fringing) is now gone.
     const wl = fr.items.find(i => i.artch === 1);
     if (wl) {
       const im = this.sv.karArt.get(wl.art);
-      if (im) octx.drawImage(im, wl.rect[0], wl.rect[1]);
-      let cursor = -Infinity;
-      for (const it of fr.items)
-        if (it.artch > 1 && this.reveal.has(it.artch)) cursor = Math.max(cursor, it.rect[2]);
-      if (im && cursor > -Infinity) {
-        // Recolor the sung region red. MULTIPLY turns the white glyphs red and
-        // keeps the black box black — but it also paints the sprite's TRANSPARENT
-        // margins solid red (multiply over an empty pixel = red), which showed as
-        // a red bar above the text. So after multiplying, mask with the sprite
-        // again via destination-in: keeps colour only where the glyph/box had
-        // pixels, erasing the red that landed on transparent areas.
-        octx.save();
-        octx.beginPath();
-        octx.rect(wl.rect[0], wl.rect[1] - 2,
-                  Math.min(cursor, wl.rect[2]) - wl.rect[0], wl.rect[3] - wl.rect[1] + 4);
-        octx.clip();
-        octx.globalCompositeOperation = 'multiply';
-        octx.fillStyle = '#ff3a2c';
-        octx.fillRect(wl.rect[0], wl.rect[1] - 2, KAR_W, wl.rect[3] - wl.rect[1] + 4);
-        octx.restore();
-        octx.globalCompositeOperation = 'destination-in';
-        octx.drawImage(im, wl.rect[0], wl.rect[1]);
-        octx.globalCompositeOperation = 'source-over';
+      if (im) ctx.drawImage(im, kx + wl.rect[0], ky + wl.rect[1]);
+    }
+    for (const it of fr.items) {
+      if (it.artch > 1 && this.reveal.has(it.artch)) {
+        const im = this.sv.karArt.get(it.art);
+        if (im) ctx.drawImage(im, kx + it.rect[0], ky + it.rect[1]);
       }
     }
-    ctx.drawImage(oc, kx, ky);
     if (this.bagelX != null) {
       const bfr = this.bagel.cur();
       const w = bfr.rect[2] - bfr.rect[0], h = bfr.rect[3] - bfr.rect[1];
