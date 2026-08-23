@@ -587,6 +587,12 @@ class MultiGag {
       // the engine's out-of-view detector that drives that trailing disperse.)
       let lastRealIdx = -1;
       for (let j = raw.length - 1; j >= 0; j--) if (!isDisp(raw[j])) { lastRealIdx = j; break; }
+      // Engine ground-truth persist (gagmap 0x4e loop-count + on-screen re-queue):
+      // this channel's transform holds — loops until it drifts out of view, then
+      // disperses. Captures both the self-looping transforms (fire, formations)
+      // AND the driver-re-queued ones (police 1349) that carry NO trailing
+      // disperse in the flattened chain, so loopsLast alone would miss them.
+      const holdCh = !!(spec.hold && spec.hold[k]);
       const loopsLast = lastRealIdx >= 0 && lastRealIdx < raw.length - 1;
 
       let chain = raw.slice();
@@ -607,7 +613,7 @@ class MultiGag {
         // they always exit on plain flight regardless of the queue's disperse.
         const last = chain[chain.length - 1];
         if (!isDisp(last)) chain = chain.concat([93]);
-      } else if (loopsLast || (selfContained && k === 'main') || slotFollow != null) {
+      } else if (holdCh || loopsLast || (selfContained && k === 'main') || slotFollow != null) {
         // loop the last real sequence until it drifts off (strip trailing disperse).
         // selfContained mains + assembly slot-bodies loop their sequence to persist.
         while (chain.length > 1 && isDisp(chain[chain.length - 1]))

@@ -98,26 +98,59 @@ def pushimm(o):
         return None
 
 
-# vtbl sequence-queue methods: 0x7c QueueSequence + 0x80 (its sibling; ~46 call
-# sites, 21 with labels — e.g. 1349's police car main=675 is queued ONLY via
-# 0x80, so 0x7c-only extraction dropped whole channels). 0xc8 = BreakOffProp.
-QUEUE = ('7c', '80')
+# vtbl sequence-queue methods: 0x7c NextSequence + 0x80 NextSequences (sibling;
+# e.g. 1349's police car main=675 is queued ONLY via 0x80). 0xc4 = Merge(other,s)
+# = other.NextSequence(0); this.NextSequence(s) — so it queues `s` on THIS channel
+# too (792's sub1 gets the toast-insert 792 this way — a synchronized pair).
+QUEUE = ('7c', '80', 'c4')
+
+
+def block_leaders(rva, end):
+    """Addresses that begin a basic block in [rva, end): every branch target
+    plus the instruction after every conditional/unconditional branch."""
+    leaders = set()
+    a = rva
+    while a in _ins and a < end:
+        ins = _ins[a]
+        if ins.mnemonic[0] == 'j':
+            t = imm(ins.op_str)
+            if t is not None:
+                leaders.add(t - base)
+            leaders.add(nxt(a))
+        a = nxt(a)
+    return leaders
 
 
 def extract_handler(rva, end=None, limit=400):
-    """Linear sweep a handler; return list of (channel, label, kind).
+    """Linear sweep a handler; return list of (channel, value, kind, loop).
 
     Uses a per-call push stack: the channel is the last `[ebx+off]` pushed and
     the label the last immediate pushed before the vtbl call (matches the
     cdecl arg order). Bounded by `end` (next handler) and the tail-jump.
+
+    `loop` (seq entries only): the per-sequence repeat count the handler writes
+    to the channel's [+0x4e] field right after queuing it — 'offscreen' when it
+    is set from CountLoopsOutOfView(0xa0) (loop until the sprite drifts out of
+    view = a persistent transform), an int for a fixed loop count, else 1 (play
+    once, since NextSequence zeroes 0x4e). This is the engine's ground-truth
+    persist signal, replacing the old trailing-disperse proxy.
     """
     out = []
+    real80 = set()             # channels queued a REAL transform via NextSequences
+    polled = set()             # channels the handler polls with CountLoopsOutOfView
+    onscreen = [False]         # handler polls the sprite-on-screen helper 0x417b57
+    ONSCREEN_HELPER = base + 0x17b57
     stack = []
     eax = None
     steps = 0
+    leaders = block_leaders(rva, end if end is not None else rva + 0x400)
+    ax_loops = False           # eax currently holds a CountLoopsOutOfView result
+    pending = []               # indices into `out` of seqs awaiting a 0x4e store
     while rva in _ins and steps < limit:
         if end is not None and rva >= end:
             break
+        if steps and rva in leaders:      # new basic block: unresolved seqs = once
+            pending = []
         ins = _ins[rva]
         m, o = ins.mnemonic, ins.op_str
         if m == 'jmp' and (imm(o) - base) in TAILS:
@@ -137,29 +170,59 @@ def extract_handler(rva, end=None, limit=400):
             else:
                 v = pushimm(o)
                 stack.append(('imm', v) if v is not None else ('?', None))
+        elif m == 'mov' and '+ 0x4e]' in o and o.startswith('word ptr'):
+            # store to [channel+0x4e] = the loop count for the last queued seq
+            src = o.split('],')[1].strip()
+            if src in ('ax', 'dx', 'cx'):
+                lp = 'offscreen' if ax_loops else '?'
+            elif src.startswith('0x') or src.lstrip('-').isdigit():
+                lp = imm(src) if src.startswith('0x') else int(src)
+            else:
+                lp = '?'
+            if pending:
+                i = pending.pop()
+                ch, val, kind, _ = out[i]
+                out[i] = (ch, val, kind, lp)
+        elif m == 'call' and imm(o) == ONSCREEN_HELPER:
+            onscreen[0] = True                       # sprite-still-on-screen predicate
+            ax_loops = False
+            stack = []
         elif m == 'call' and 'ptr [eax + 0x' in o:
             off = o.split('[eax + 0x')[1].split(']')[0]
+            if off == 'a0':                          # CountLoopsOutOfView -> eax
+                ax_loops = True
+                ch = next((v for t, v in reversed(stack) if t == 'ch'), None)
+                if ch:
+                    polled.add(ch)
+            else:
+                ax_loops = False
             if off in QUEUE:
                 ch = next((v for t, v in reversed(stack) if t == 'ch'), None)
                 im = next((v for t, v in reversed(stack) if t == 'imm'), None)
                 if ch and im is not None:
                     if 0x5500 < im < 0x5600:
-                        out.append((ch, im, 'snd'))
+                        out.append((ch, im, 'snd', None))
                     # keep real labels + the disperse markers (3, 93); drop the
                     # tiny control args (0/1/6 = flags/counts, not sequences)
                     elif im >= 0x100 or im in (3, 93):
-                        out.append((ch, im, 'seq'))
+                        out.append((ch, im, 'seq', 1))   # 0x4e stays 0 => play once
+                        pending.append(len(out) - 1)
+                        # NextSequences (0x80) of a REAL transform = a driver-looped
+                        # persistent state (police 1349's main re-queues 675 each
+                        # tick until out of view); disperse 3/93 via 0x80 is not.
+                        if off == '80' and im >= 0x100:
+                            real80.add(ch)
             elif off == 'fc':                        # GetChannelRect(this, slot)
                 im = next((v for t, v in reversed(stack) if t == 'imm'), None)
                 if im is not None and 1 <= im <= 8:
-                    out.append(('main', im, 'getrect'))
+                    out.append(('main', im, 'getrect', None))
             elif off == '98':                        # SetCenterPoint(this, ...)
                 ch = next((v for t, v in reversed(stack) if t == 'ch'), None)
-                out.append((ch, None, 'setcenter'))
+                out.append((ch, None, 'setcenter', None))
             stack = []
         rva = nxt(rva)
         steps += 1
-    return out
+    return out, real80, polled, onscreen[0]
 
 
 def choreography():
@@ -177,12 +240,13 @@ def choreography():
                 continue
             h = disp[scen]
             nxt_h = next((a for a in hstarts if a > h), None)
-            ops = extract_handler(h, end=nxt_h)
+            ops, real80, polled, onscreen = extract_handler(h, end=nxt_h)
             chans = {}
+            hold = {}                                # channels whose transform loops offscreen
             sounds = []
             getrects = []                            # GetChannelRect slots, in order
             setcenters = []                          # SetCenterPoint channels, in order
-            for ch, val, kind in ops:
+            for ch, val, kind, loop in ops:
                 if kind == 'snd':
                     sounds.append(val - 0x55f0 + 22000)
                 elif kind == 'getrect':
@@ -190,6 +254,13 @@ def choreography():
                 elif kind == 'setcenter':
                     setcenters.append(ch)
                 else:
+                    # a REAL sequence (not disperse) whose 0x4e loop is 'offscreen'
+                    # is a persistent transform: it re-plays until the sprite drifts
+                    # out of view, then disperses. Record per-channel — this is the
+                    # ground-truth persist signal (fire 928, police 1349, formation
+                    # 2736, ...) that the flattened chain alone cannot express.
+                    if val not in (3, 93) and loop == 'offscreen':
+                        hold[ch] = True
                     chans.setdefault(ch, [])
                     # keep order, dedup consecutive. The trailing disperse (3/93)
                     # is SIGNIFICANT — a real sequence followed by a disperse loops
@@ -198,8 +269,18 @@ def choreography():
                     # keep one trailing disperse, don't collapse it away.
                     if not chans[ch] or chans[ch][-1] != val:
                         chans[ch].append(val)
+            # Signal B (driver-looped persistence): a channel that queued a real
+            # transform via NextSequences AND polls CountLoopsOutOfView re-issues
+            # that sequence every tick until the sprite drifts out of view (police
+            # 1349's main). 0x4e-based holds (signal A) cover the self-looping
+            # transforms; this covers the state-machine-driven ones.
+            for ch in real80:
+                if ch in polled or onscreen:
+                    hold[ch] = True
             if chans:
                 e = {'chans': chans, 'sounds': sounds}
+                if hold:
+                    e['hold'] = hold
                 # Formation assembly: GetChannelRect(slot) results are consumed by
                 # SetCenterPoint(channel) calls positionally — pair them to learn
                 # which body-slot of the main's formed sequence each channel snaps

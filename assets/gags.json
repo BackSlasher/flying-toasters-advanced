@@ -20,6 +20,9 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "main": true
+  },
   "cfg": {
    "weight": 1,
    "lanes": 2,
@@ -34,6 +37,9 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "main": true
+  },
   "cfg": {
    "weight": 1,
    "lanes": 2
@@ -47,6 +53,9 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "main": true
+  },
   "cfg": {
    "weight": 1,
    "lanes": 2,
@@ -106,6 +115,7 @@
  "792": {
   "chans": {
    "sub1": [
+    792,
     3
    ],
    "main": [
@@ -148,6 +158,9 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "main": true
+  },
   "cfg": {
    "weight": 1,
    "lanes": 1
@@ -218,6 +231,10 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "sub1": true,
+   "sub2": true
+  },
   "slots": {
    "sub2": 2,
    "sub1": 1
@@ -252,6 +269,11 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "sub1": true,
+   "sub2": true,
+   "sub3": true
+  },
   "slots": {
    "sub3": 1,
    "main": 1,
@@ -286,6 +308,10 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "sub2": true,
+   "sub3": true
+  },
   "slots": {
    "sub3": 1,
    "main": 1,
@@ -308,6 +334,10 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "sub1": true,
+   "main": true
+  },
   "cfg": {
    "weight": 2,
    "lanes": 3,
@@ -391,6 +421,9 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "main": true
+  },
   "cfg": {
    "weight": 4,
    "lanes": 4,
@@ -449,6 +482,11 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "main": true,
+   "sub1": true,
+   "sub2": true
+  },
   "slots": {
    "main": 1,
    "sub1": 2,
@@ -462,7 +500,10 @@
     2910
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "hold": {
+   "main": true
+  }
  },
  "1288": {
   "chans": {
@@ -477,6 +518,9 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "main": true
+  },
   "cfg": {
    "weight": 1,
    "lanes": 3,
@@ -490,7 +534,10 @@
     2257
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "hold": {
+   "main": true
+  }
  },
  "2298": {
   "chans": {
@@ -499,7 +546,10 @@
     2257
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "hold": {
+   "main": true
+  }
  },
  "2349": {
   "chans": {
@@ -508,7 +558,10 @@
     2257
    ]
   },
-  "sounds": []
+  "sounds": [],
+  "hold": {
+   "main": true
+  }
  },
  "2391": {
   "chans": {
@@ -517,6 +570,9 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "main": true
+  },
   "cfg": {
    "weight": 2,
    "lanes": 1,
@@ -535,6 +591,10 @@
    ]
   },
   "sounds": [],
+  "hold": {
+   "sub1": true,
+   "main": true
+  },
   "slots": {
    "sub1": 4
   },
