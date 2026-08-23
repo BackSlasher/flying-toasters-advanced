@@ -108,7 +108,10 @@ class Player {
     const seq = this.c.seqOf.get(label);
     if (!seq) return false;
     const target = this.c.frame(label);
-    // link frame: label-1 if it exists (sub-sequence), else the label frame
+    // link frame: label-1 if it exists (sub-sequence), else the label frame.
+    // (The hold-transform loops' divergent drifts — 307 up-left, 324 down-right
+    // mirrored, 638 slow-left — are AUTHORED per-frame displacements: the 2736
+    // wedge deliberately scatters after its acts. Not an alignment bug.)
     const linkNo = this.c.frames[String(label - 1)] ? label - 1 : label;
     const link = this.c.frame(linkNo);
     this._alignCommonArt(this.prevFrame, link);
@@ -1224,7 +1227,16 @@ class Screensaver {
   tick() {
     if (this.debugActor) {
       this.debugActor.tick();
-      if (this.debugActor.dead && this.debugFactory) this.debugActor = this.debugFactory();
+      // Respawn dead debug gags after a short PAUSE, not instantly: instant
+      // respawn made every gag look like an endless loop (recurring "it keeps
+      // repeating" reports for what is really the replay-for-review affordance).
+      if (this.debugActor.dead && this.debugFactory) {
+        this._dbgDeadTicks = (this._dbgDeadTicks || 0) + 1;
+        if (this._dbgDeadTicks >= 15) {           // ~1.5s gap between replays
+          this._dbgDeadTicks = 0;
+          this.debugActor = this.debugFactory();
+        }
+      } else this._dbgDeadTicks = 0;
       if (!this.debugSolo) {                      // swarm continues alongside
         for (const a of this.actors) a.tick();
         this.actors = this.actors.filter(a => !a.dead);
