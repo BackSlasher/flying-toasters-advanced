@@ -216,3 +216,19 @@ Known parser limits: shared handlers with a scenario-conditional label add
 (1782 vs 1928) resolve to the fall-through value; sub-channel screen POSITIONS
 aren't in the sequence data (set by the glue's entry-placement lanes) — the
 port approximates them (start-card layout when present, else staggered entry).
+
+## Gag selection (family pickers) — authentic distribution
+
+Top-level pick (0x10c24): `RandShort(3)` → family, with rate gates:
+0 → family C (if now > lastC+15s), 1 → family B (if now > lastB+6s), 2 → A
+(always); gated families fall back toward A. Within a family, `RandShort(N)`
+indexes its jump table (0x10cfa / 0x10dae / 0x10e7c):
+
+- **A** (RandShort 13): 1782, 1928, 792, 807, 749, 861, 274, 295, 312, 329, 558, 456
+- **B** (RandShort 14): 2391, 2406, 1213, 1227, 1288, 658, 928, 1361, 1372, 2239, 1387, 2272, 2298
+- **C** (RandShort 11): 2421, 2458, 2736, 2910, 1402, 1672, 2080, 679, 1349, 879
+
+The web port implements this exactly; each scenario renders via MultiGag from
+gags.json (or, for scenarios whose handler had no queue ops, by playing the
+scenario's own sequence). Scenario-specific SFX from the run loop (not the glue
+handlers): 928→WAV22001 fire, 679/1349→WAV22005 police, 1288→WAV22012 morph.
