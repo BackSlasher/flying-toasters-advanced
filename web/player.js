@@ -162,29 +162,13 @@ const CLOUD_ROLLS = [3053, 3058, 3063, 3068];
 const BABYSKY_ROLLS = [3199, 3204, 3209, 3214, 3239, 3244, 3249, 3254, 3259, 3264];
 const MOON = 3239, COW = 3244, STARS = 3249;
 
-// RE-NOTES §4: BigGag families B and C. Only SELF-CONTAINED scenarios are
-// enabled — ones whose main-channel sequence draws its whole cast from its own
-// item list (len>=5). Start-card scenarios (len==1: 2458 diamond, 1402, 2080,
-// 679 police-card) and the 3-frame 1227 need the multi-channel sub-actor driver
-// (family-A glue, not yet wired) and are omitted so nothing flashes-and-vanishes.
-// Police chase survives via self-contained scenario 928. [label, weight]
-const GAG_B = [[2391, 2], [2406, 2], [1213, 1], [658, 1],
-               [928, 1], [1361, 1], [1372, 1], [2239, 2], [1387, 1], [2272, 1],
-               [2298, 1], [2349, 1],
-               [878, 2],                          // bagel-eyes (persistent)
-               [1232, 1],                         // evolution morph
-               [748, 1]];                         // toast popper (self-contained)
-const GAG_C = [[2421, 4], [2736, 1], [2910, 1], [1672, 2],
-               [1349, 2], [946, 2]];
-// scenario -> follow-on. persist = loop this label until offscreen.
-const GAG_CHAINS = {
-  // 913 (not 912) so the persist loop skips seq 912's bagel-less link frame
-  // (f912=[body] only) that caused a 1-frame no-bagel flicker each loop.
-  878: { chain: [913], persist: 913 },           // bagel act -> bagel-cruise forever
-  // 1288 (not 1287): 1287's first frame (art 500) duplicates its last, causing
-  // a 2-same-frames hiccup on loop; entering at 1288 skips that link frame.
-  1232: { chain: [1288, 1288, 1303], persist: null }, // morph -> futuristic -> back -> 93
-};
+// Authentic gag selection (family pickers 0x10cd2/0x10d85/0x10e51 — RandShort
+// into these jump tables). Top level (0x10c24): RandShort(3) picks a family:
+// 0 -> C (>=15s gate), 1 -> B (>=6s gate), 2 -> A (always); gated families
+// fall back toward A. Every scenario's choreography comes from gags.json.
+const FAM_A = [1782, 1928, 792, 807, 749, 861, 274, 295, 312, 329, 558, 456];
+const FAM_B = [2391, 2406, 1213, 1227, 1288, 658, 928, 1361, 1372, 2239, 1387, 2272, 2298];
+const FAM_C = [2421, 2458, 2736, 2910, 1402, 1672, 2080, 679, 1349, 879];
 
 
 class ToasterActor {
@@ -422,24 +406,6 @@ class Actor {
         this.enterCloud();
         break;
       }
-      case 'gag': {
-        const fam = label;                       // [label, weight] tuple
-        this.loop = null;                        // scenarios run once then disperse
-        this.weight = fam[1];
-        this.scenario = fam[0];
-        // engine follow-on chains (RE-ENGINE.md): morph forward→futuristic loop
-        // →morph back→plain; bagel-eyes act→bagel-cruise (persists til offscreen)
-        const spec = GAG_CHAINS[fam[0]];
-        this.gagChain = spec ? spec.chain.slice() : null;
-        this.gagPersist = spec ? (spec.persist ?? null) : null;
-        this.p.enter(fam[0]);
-        this.enterFromEdge();
-        sv.playSound(22010);                     // gag whoosh (RE-ENGINE.md)
-        if (fam[0] === 928) sv.playSound(22001);            // fire / burning
-        else if (fam[0] === 679 || fam[0] === 1349) sv.playSound(22005); // police siren
-        else if (fam[0] === 1232 || fam[0] === 1288) sv.playSound(22012); // morph warp
-        break;
-      }
       case 'intro': {
         this.p.enter(3133);
         this.p.placeCenter(DESIGN_W / 2, DESIGN_H / 2);
@@ -473,22 +439,6 @@ class Actor {
       this.p.enter(93);
       return;
     }
-    if (this.kind === 'gag') {
-      // scenario finished: follow the engine's chain (RE-ENGINE.md), which is
-      // either a persistent transform (bagel-eyes/morph loop) or disperse-to-93
-      if (this.gagChain && this.gagChain.length) {
-        this.p.enter(this.gagChain.shift());
-        return;
-      }
-      if (this.gagPersist != null) {             // loop the transformed cruise
-        this.p.enter(this.gagPersist);
-        return;
-      }
-      this.p.enter(93);
-      this.kind = 'gag-out';
-      return;
-    }
-    if (this.kind === 'gag-out') { this.p.enter(93); return; }
     this.p.enter(this.loop);                     // food/cloud re-queue same
   }
   die() {
@@ -504,17 +454,16 @@ class Actor {
 // then dispersing to plain flight. Start positions come from the scenario's
 // "start card" frame when it exists (items = each toaster formed up); else the
 // channels stagger in from the entry band.
-const MULTI_GAGS = [2458, 946, 679, 1402, 2080, 792, 1782, 1928];
-
 class MultiGag {
-  constructor(sv, scen, weight) {
+  constructor(sv, scen) {
     this.sv = sv;
     this.kind = 'gag';
     this.dead = false;
-    this.weight = weight || 2;
-    const spec = sv.gags[String(scen)];
+    // gags.json entry; if the scenario had no queue ops it's self-contained —
+    // play its own sequence on main.
+    const spec = sv.gags[String(scen)] || { chans: { main: [scen] } };
     const order = ['main', 'sub1', 'sub2', 'sub3'].filter(k => spec.chans[k]);
-    this.weight = (spec.cfg && spec.cfg.weight) || this.weight;
+    this.weight = (spec.cfg && spec.cfg.weight) || 1;
     // entry-lane geometry (engine fn 0x17378): lane<split enters along the TOP
     // edge (x = baseX+(lane-split)*160+240, y = baseY-80); lane>=split enters
     // along the RIGHT edge (x = baseX+80, y = baseY+(lane-split)*80).
@@ -555,8 +504,11 @@ class MultiGag {
         if (c.dead) continue;
         c.atBoundary = false;
         c.ci++;
-        if (c.ci < c.chain.length) c.p.enter(c.chain[c.ci]);
-        else c.p.enter(93);                      // choreography done -> disperse
+        // advance the chain; after the last step, LOOP the final sequence until
+        // it drifts offscreen (engine behavior — keeps persistent transforms
+        // like the bagel-on-eyes; an explicit trailing 93 already means disperse)
+        c.p.enter(c.ci < c.chain.length ? c.chain[c.ci] : c.chain[c.chain.length - 1]);
+        if (c.ci >= c.chain.length) c.ci = c.chain.length - 1;
       }
     }
     if (!alive) this.dead = true;
@@ -749,20 +701,15 @@ class Screensaver {
   }
 
   spawnGag() {
+    // authentic family selection (0x10c24): RandShort(3) -> family, gated;
+    // then RandShort into the family's picker table -> scenario.
     const t = now();
-    // ~1 in 3 gags is a multi-toaster gag (diamond/police/speeding/pairs),
-    // driven straight from gags.json
-    if (rand(3) === 0) {
-      const scen = pick(MULTI_GAGS.filter(s => this.gags[String(s)]));
-      this.actors.push(new MultiGag(this, scen));
-      return;
-    }
     const roll = rand(3);
-    let table = null;
-    if (roll === 0 && t > this.lastGagC + 15000) { table = GAG_C; this.lastGagC = t; }
-    else if (roll <= 1 && t > this.lastGagB + 6000) { table = GAG_B; this.lastGagB = t; }
-    else { table = GAG_B; this.lastGagB = t; }
-    this.actors.push(new Actor(this, 'gag', pick(table)));
+    let fam;
+    if (roll === 0 && t > this.lastGagC + 15000) { fam = FAM_C; this.lastGagC = t; }
+    else if (roll <= 1 && t > this.lastGagB + 6000) { fam = FAM_B; this.lastGagB = t; }
+    else { fam = FAM_A; }
+    this.actors.push(new MultiGag(this, pick(fam)));
   }
 
   spawn() {

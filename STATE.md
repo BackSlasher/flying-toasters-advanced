@@ -156,3 +156,15 @@ speeding 520), police 679 (3ch), 1402/2080 (long orphans), toast-juggle 792
       run loop 0x10839). Keeps formations locked.
 - [~] Conga: 1402 (long companions) is the candidate; reads as a following
       formation but not confirmed single-file. Needs user eyes on the original.
+
+
+### Gag system fully unified (authentic)
+Extracted the family picker tables (0x10cd2/0x10d85/0x10e51):
+- FAM_A [1782,1928,792,807,749,861,274,295,312,329,558,456]
+- FAM_B [2391,2406,1213,1227,1288,658,928,1361,1372,2239,1387,2272,2298]
+- FAM_C [2421,2458,2736,2910,1402,1672,2080,679,1349,879]
+spawnGag now = RandShort(3) family select (C>=15s / B>=6s gates / A always) →
+RandShort into the family table → MultiGag(scen), driven entirely by gags.json
+(chains + weight/lanes/split/delay). Channels loop their last sequence until
+offscreen (keeps persistent transforms). Removed all hardcoded gag pools.
+Everything data-driven from the RE artifacts now.
