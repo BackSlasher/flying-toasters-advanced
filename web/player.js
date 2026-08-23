@@ -724,6 +724,25 @@ class MultiGag {
       // prepends base + rand(span) flight loops per spawn (1288's RandShort).
       if (k === 'main' && spec.leadIn)
         chain = Array(spec.leadIn[0] + rand(spec.leadIn[1])).fill(3).concat(chain);
+      // Random act-repeat variants (engine RandShort(3) dispatch among queue
+      // lists — 456's gate @0x11f23; extracted as gags.json `repeat`): re-roll
+      // how many consecutive times the act label plays, per spawn (456/380:
+      // 0-2 loops, 879's bagel pops & 2349: 1-3).
+      if (spec.repeat) for (const rp of spec.repeat) {
+        if (rp.chan !== k) continue;
+        const n = rp.counts[rand(rp.counts.length)];
+        const out = [];
+        let done = false;
+        for (let j = 0; j < chain.length; j++) {
+          if (!done && chain[j] === rp.label) {
+            while (j < chain.length && chain[j] === rp.label) j++;
+            j--;
+            for (let q = 0; q < n; q++) out.push(rp.label);
+            done = true;
+          } else out.push(chain[j]);
+        }
+        chain = out;
+      }
       // drop 1-frame "start card" layout markers (e.g. 2458/679) — the formation
       // TEMPLATE (one artch item per channel), not a playable actor.
       chain = chain.filter(l => seqLen(l) > 1);

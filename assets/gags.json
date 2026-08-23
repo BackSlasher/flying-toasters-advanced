@@ -94,6 +94,17 @@
    ]
   },
   "sounds": [],
+  "repeat": [
+   {
+    "chan": "main",
+    "label": 380,
+    "counts": [
+     0,
+     1,
+     2
+    ]
+   }
+  ],
   "cfg": {
    "weight": 1,
    "lanes": 2,
@@ -116,6 +127,17 @@
    ]
   },
   "sounds": [],
+  "repeat": [
+   {
+    "chan": "main",
+    "label": 456,
+    "counts": [
+     0,
+     1,
+     2
+    ]
+   }
+  ],
   "cfg": {
    "weight": 1,
    "lanes": 3,
@@ -346,6 +368,17 @@
    "sub1": 2
   },
   "template": 875,
+  "repeat": [
+   {
+    "chan": "sub1",
+    "label": 861,
+    "counts": [
+     1,
+     2,
+     3
+    ]
+   }
+  ],
   "cfg": {
    "weight": 2,
    "lanes": 3,
@@ -662,7 +695,18 @@
   "sounds": [],
   "hold": {
    "main": true
-  }
+  },
+  "repeat": [
+   {
+    "chan": "main",
+    "label": 2349,
+    "counts": [
+     1,
+     2,
+     3
+    ]
+   }
+  ]
  },
  "2391": {
   "chans": {

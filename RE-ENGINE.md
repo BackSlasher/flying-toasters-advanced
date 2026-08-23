@@ -500,8 +500,10 @@ the port fires _splitProps when the chain's FIRST REAL (non-disperse) sequence
 completes — 807's toast detaches at the pop's end, 1672's rider at its seq end.
 
 ### Micro-deviations (known, accepted)
-- 456 picks 0/1/2 act loops per spawn via three handler variants (gate operand
-  not yet extracted); port always plays the 2-loop variant.
+- (RESOLVED) act-repeat variants: the gate is RandShort(3) (@0x11f23 for 456);
+  gagmap detects the variant families among a channel's 0x80 lists and emits
+  `repeat` (456/380: 0-2 loops; 879's bagel pops & 2349: 1-3); the port
+  re-rolls per spawn.
 - 1288 stays hand-modeled (global 3-phase counter); its 2-5 loop random
   lead-in IS reproduced (leadIn mechanism, RandShort(4)+2).
 - SCEN_SFX table hand-written (flag-armed PlayNoise path unextracted, #6).

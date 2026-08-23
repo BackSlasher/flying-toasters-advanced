@@ -645,6 +645,74 @@ def choreography():
                     e['slots'] = slots
                 if templates.get('main'):
                     e['template'] = templates['main']
+                # RANDOM ACT-REPEAT VARIANTS: several handlers dispatch on
+                # RandShort(3) (verified at 456's gate 0x11f23) among K
+                # NextSequences lists identical except for how many consecutive
+                # times one act label repeats (456: 0-2 loops; 861/879: 1-3
+                # bagel pops; 380, 2349 likewise). Detect the family among the
+                # channel's collected 0x80 lists and emit repeat={chan,label,
+                # counts:[...]}: the port re-rolls the count per spawn.
+                for ch, lists in nseq_lists.items():
+                    if len(lists) < 2:
+                        continue
+                    uniq = []
+                    for ls in lists:
+                        if ls not in uniq:
+                            uniq.append(ls)
+                    if len(uniq) < 2:
+                        continue
+                    # compare against the longest list: all variants must equal
+                    # it after collapsing ONE label's consecutive run
+                    ref = max(uniq, key=len)
+                    def runs(ls):
+                        r = []
+                        for v in ls:
+                            if r and r[-1][0] == v:
+                                r[-1][1] += 1
+                            else:
+                                r.append([v, 1])
+                        return r
+                    rref = runs(ref)
+                    cand = None
+                    ok = True
+                    counts = set()
+                    for ls in uniq:
+                        rl = runs(ls)
+                        # must have same run labels except possibly one missing
+                        labs = [x[0] for x in rl]
+                        rlabs = [x[0] for x in rref]
+                        diff = None
+                        if labs == rlabs:
+                            pairs = [(a[0], a[1], b[1]) for a, b in zip(rl, rref)
+                                     if a[1] != b[1]]
+                            if len(pairs) == 0:
+                                diff = (rref[0][0], None)   # identical
+                            elif len(pairs) == 1:
+                                diff = (pairs[0][0], pairs[0][1])
+                            else:
+                                ok = False
+                        else:
+                            # one run absent entirely (count 0)
+                            missing = [l for l in rlabs if labs.count(l) < rlabs.count(l)]
+                            if len(missing) == 1 and labs == [l for l in rlabs if l != missing[0]]:
+                                diff = (missing[0], 0)
+                            else:
+                                ok = False
+                        if not ok or diff is None:
+                            break
+                        lab, cnt = diff
+                        if cnt is not None:
+                            if cand is None:
+                                cand = lab
+                            elif cand != lab:
+                                ok = False
+                                break
+                            counts.add(cnt)
+                    if ok and cand is not None and cand >= 0x100 and counts:
+                        refcnt = dict((x[0], x[1]) for x in rref)[cand]
+                        counts.add(refcnt)
+                        e.setdefault('repeat', []).append(
+                            {'chan': ch, 'label': cand, 'counts': sorted(counts)})
                 table[scen] = e
     return table
 
