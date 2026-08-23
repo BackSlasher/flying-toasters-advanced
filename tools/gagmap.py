@@ -259,6 +259,235 @@ def extract_handler(rva, end=None, limit=400):
     return out, real80, polled, onscreen[0], nseq_lists
 
 
+# --------------------------------------------------------------------------
+# State-machine interpreter (execution-ordered choreography).
+#
+# The handlers are re-entrant per-tick coroutines: each tick they run
+# top-to-bottom, branch on the gag object's phase flags ([ebx+off] words) and
+# each channel's "sequence complete" flag ([ch+0x4a]), queue sequences, and
+# advance the flags. The linear sweep sees the ONGOING branch before INIT
+# (reverse of execution). We recover true order by SIMULATING the handler tick
+# by tick, evaluating flag compares concretely, until the state repeats.
+# RandShort -> 0 (collapse random durations); on-screen helper -> true.
+#
+# Scope: used for SINGLE-body gags. Formations (multi-channel slot assemblies)
+# exercise semantics this doesn't model — cross-channel [0x4a] gating, 0x80
+# queue-replacement, the GetChannelRect/SetCenterPoint slot machinery — so they
+# (and the global-phase morph 1288) keep the flattened extraction, whose output
+# for them is visually verified. TODO: model those, then unify.
+
+RANDSHORT = 0x22f51
+
+
+def _chan_off(o):
+    if '[ebx + 0x' in o:
+        try:
+            return int(o.split('[ebx + 0x')[1].split(']')[0], 16)
+        except ValueError:
+            return None
+    return None
+
+
+def _run_tick(h, end, st, log):
+    """One handler tick. Mutates st {flags, mem, done}; appends ('seq',ch,[L])
+    / ('prop',ch,L) events to log in execution order. Returns channels queued."""
+    flags, mem, done = st['flags'], st['mem'], st['done']
+    eax = None                       # tagged: ('ch',name)/('imm',v)/None
+    cmp_lhs = cmp_rhs = cf = None
+    stack = []
+    queued = set()
+    rva = h
+    steps = 0
+    while rva in _ins and steps < 600:
+        steps += 1
+        if end is not None and rva >= end:
+            break
+        ins = _ins[rva]
+        m, o = ins.mnemonic, ins.op_str
+        if m == 'jmp':
+            t = imm(o)
+            if t is None or (t - base) in TAILS:
+                break
+            rva = t - base
+            continue
+        if m == 'ret':
+            break
+        if m == 'mov':
+            dst, _, src = o.partition(', ')
+            if dst in ('eax', 'ax'):
+                if src.startswith('0x') or src.lstrip('-').isdigit():
+                    eax = ('imm', imm(src) if src.startswith('0x') else int(src))
+                elif 'ptr [ebx + 0x' in src:
+                    off = _chan_off(src)
+                    eax = ('ch', CH.get(off)) if off in CH else ('flag', off)
+                elif 'ptr [0x' in src:
+                    addr = int(src.split('[0x')[1].split(']')[0], 16)
+                    eax = ('imm', mem.get(addr, 0))
+                elif src == 'dword ptr [eax]':
+                    pass                       # vtbl load; keep channel tag
+                else:
+                    eax = None
+            elif 'word ptr [ebx + 0x' in dst:
+                off = _chan_off(dst)
+                if off is not None and (src.startswith('0x') or src.lstrip('-').isdigit()):
+                    flags[off] = imm(src) if src.startswith('0x') else int(src)
+            elif 'ptr [0x' in dst:
+                addr = int(dst.split('[0x')[1].split(']')[0], 16)
+                if src.startswith('0x') or src.lstrip('-').isdigit():
+                    mem[addr] = imm(src) if src.startswith('0x') else int(src)
+                elif src == 'eax' and eax and eax[0] == 'imm':
+                    mem[addr] = eax[1]
+            elif '+ 0x4a]' in dst and eax and eax[0] == 'ch':
+                if src.strip() in ('0', '0x0'):
+                    done[eax[1]] = 0           # explicit done-flag clear
+        elif m == 'dec' and eax and eax[0] == 'imm':
+            orig = eax[1]; eax = ('imm', orig - 1)
+            cf = orig < 1; cmp_lhs, cmp_rhs = eax[1], 0
+        elif m == 'inc' and eax and eax[0] == 'imm':
+            eax = ('imm', eax[1] + 1)
+        elif m in ('inc', 'dec') and 'ptr [0x' in o:
+            addr = int(o.split('[0x')[1].split(']')[0], 16)
+            mem[addr] = mem.get(addr, 0) + (1 if m == 'inc' else -1)
+        elif m == 'sub' and o.startswith('eax,') and eax and eax[0] == 'imm':
+            k = imm(o.split(', ')[1])
+            if k is None:
+                eax = None
+            else:
+                orig = eax[1]; eax = ('imm', orig - k)
+                cf = orig < k; cmp_lhs, cmp_rhs = eax[1], 0
+        elif m == 'add' and o.startswith('eax,') and eax and eax[0] == 'imm':
+            k = imm(o.split(', ')[1])
+            eax = ('imm', eax[1] + k) if k is not None else None
+        elif m == 'cmp':
+            lhs, _, rhs = o.partition(', ')
+            rv = imm(rhs) if ('0x' in rhs or rhs.lstrip('-').isdigit()) else None
+            if 'word ptr [ebx + 0x' in lhs:
+                cmp_lhs, cmp_rhs = flags.get(_chan_off(lhs), 0), rv
+            elif 'ptr [0x' in lhs:
+                addr = int(lhs.split('[0x')[1].split(']')[0], 16)
+                cmp_lhs, cmp_rhs = mem.get(addr, 0), rv
+            elif '+ 0x4a]' in lhs and eax and eax[0] == 'ch':
+                cmp_lhs, cmp_rhs = done.get(eax[1], 1), rv
+            elif lhs == 'eax' and eax and eax[0] == 'imm':
+                cmp_lhs, cmp_rhs = eax[1], rv
+            else:
+                cmp_lhs = cmp_rhs = None
+        elif m == 'test' and o == 'eax, eax' and eax and eax[0] == 'imm':
+            cmp_lhs, cmp_rhs = eax[1], 0
+        elif m in ('je', 'jne', 'jg', 'jge', 'jl', 'jle',
+                   'ja', 'jae', 'jb', 'jbe', 'jz', 'jnz'):
+            t = imm(o)
+            take = None
+            if m in ('jb', 'jbe') and cf is not None:
+                take = cf if m == 'jb' else (cf or cmp_lhs == cmp_rhs)
+            elif m == 'jae' and cf is not None:
+                take = not cf
+            elif cmp_lhs is not None and cmp_rhs is not None:
+                a, b = cmp_lhs, cmp_rhs
+                take = {'je': a == b, 'jz': a == b, 'jne': a != b, 'jnz': a != b,
+                        'jg': a > b, 'jge': a >= b, 'jl': a < b, 'jle': a <= b,
+                        'ja': a > b, 'jae': a >= b, 'jb': a < b, 'jbe': a <= b}[m]
+            if take is None:
+                take = False                   # unknown compare: fall through
+            if take and t is not None:
+                rva = t - base
+                cmp_lhs = cmp_rhs = cf = None
+                continue
+            cmp_lhs = cmp_rhs = cf = None
+        elif m == 'push':
+            if o == 'eax':
+                stack.append(eax if eax else ('?', None))
+            elif 'ptr [ebx + 0x' in o:
+                off = _chan_off(o)
+                stack.append(('ch', CH.get(off)) if off in CH else ('?', None))
+            elif o.startswith('0x') or o.lstrip('-').isdigit():
+                stack.append(('imm', imm(o) if o.startswith('0x') else int(o)))
+            else:
+                stack.append(('?', None))
+        elif m == 'call':
+            tgt = imm(o)
+            if tgt is not None and tgt - base == RANDSHORT:
+                eax = ('imm', 0)
+            elif tgt is not None and tgt - base == 0x17b57:
+                eax = ('imm', 1)               # on-screen helper -> true
+            elif 'ptr [eax + 0x' in o:
+                off = o.split('[eax + 0x')[1].split(']')[0]
+                ch = next((v for t_, v in reversed(stack) if t_ == 'ch'), None)
+                if off in QUEUE and ch:
+                    if off == '80':
+                        ims = [v for t_, v in stack if t_ == 'imm']
+                        lst = []
+                        for a in reversed(ims):
+                            if a is None:
+                                continue
+                            if a < 0:
+                                break
+                            lst.append(a)
+                        labels = [x for x in lst if x >= 0x100 or x in (3, 93)]
+                    else:
+                        im = next((v for t_, v in reversed(stack) if t_ == 'imm'), None)
+                        labels = ([im] if im is not None
+                                  and (im >= 0x100 or im in (3, 93)) else [])
+                    if labels:
+                        log.append(('seq', ch, labels))
+                        done[ch] = 0
+                        queued.add(ch)
+                elif off == 'c8':              # Split(this, sub, cont, prop)
+                    ims = [v for t_, v in stack if t_ == 'imm']
+                    thisch = next((v for t_, v in reversed(stack) if t_ == 'ch'), None)
+                    prop = ims[0] if ims else None
+                    cont = ims[1] if len(ims) > 1 else None
+                    if thisch and prop is not None and prop >= 0x100:
+                        log.append(('prop', thisch, prop))
+                    if thisch and cont is not None and (cont >= 0x100 or cont in (3, 93)):
+                        log.append(('seq', thisch, [cont]))
+                        done[thisch] = 0
+                        queued.add(thisch)
+                eax = None
+            stack = []
+        rva = nxt(rva)
+    return queued
+
+
+def _collapse_cycle(seq):
+    """A looping state machine re-queues its cycle forever; keep one period
+    ([A,B,C,A,B,C,A] -> [A,B,C])."""
+    n = len(seq)
+    for p in range(1, n // 2 + 1):
+        if all(seq[i] == seq[i % p] for i in range(n)):
+            return seq[:p]
+    return seq
+
+
+def interp_handler(h, end, max_ticks=60):
+    """Simulate the handler; return ({channel: [labels]}, [props]) in true
+    execution order."""
+    st = {'flags': {}, 'mem': {}, 'done': {c: 1 for c in CH.values()}}
+    chains = {}
+    props = []
+    seen_states = set()
+    for _ in range(max_ticks):
+        for c in CH.values():                  # queued seqs complete between ticks
+            st['done'][c] = 1
+        log = []
+        queued = _run_tick(h, end, st, log)
+        for ev in log:
+            if ev[0] == 'seq':
+                ch, labels = ev[1], ev[2]
+                chains.setdefault(ch, [])
+                for L in labels:
+                    if not chains[ch] or chains[ch][-1] != L:
+                        chains[ch].append(L)
+            elif ev[0] == 'prop' and ev[2] not in props:
+                props.append(ev[2])
+        state = (tuple(sorted(st['flags'].items())),
+                 tuple(sorted(st['mem'].items())))
+        if not queued or state in seen_states:
+            break
+        seen_states.add(state)
+    return {c: _collapse_cycle(v) for c, v in chains.items() if v}, props
+
+
 def choreography():
     """Return {scenario: {channel: [labels...], sounds: [...]}} across drivers."""
     table = {}
@@ -340,20 +569,32 @@ def choreography():
             for ch in real80:
                 if ch in polled or onscreen:
                     hold[ch] = True
+            # Formation assembly: GetChannelRect(slot) results are consumed by
+            # SetCenterPoint(channel) calls positionally — pair them to learn
+            # which body-slot of the main's formed sequence each channel snaps
+            # onto (2736: main/sub1/sub2 -> slots 1/2/3; 2406: sub1 -> slot 4).
+            slots = {}
+            for ch, slot in zip(setcenters, getrects):
+                if ch and ch not in slots:
+                    slots[ch] = slot
+            # Execution-ordered chains from the state-machine interpreter — for
+            # single-body gags only. Formations (have slots) and the global-phase
+            # morph 1288 exercise semantics the interpreter doesn't model yet
+            # (cross-channel [0x4a] gating, 0x80 queue-replacement, the slot
+            # machinery); their flattened chains are visually verified, keep them.
+            if not slots and scen != 0x508:
+                ichains, iprops = interp_handler(h, nxt_h)
+                if ichains:
+                    chans = ichains
+                    for p in iprops:
+                        if p not in props:
+                            props.append(p)
             if chans:
                 e = {'chans': chans, 'sounds': sounds}
                 if hold:
                     e['hold'] = hold
                 if props:
                     e['props'] = props
-                # Formation assembly: GetChannelRect(slot) results are consumed by
-                # SetCenterPoint(channel) calls positionally — pair them to learn
-                # which body-slot of the main's formed sequence each channel snaps
-                # onto (2736: main/sub1/sub2 -> slots 1/2/3; 2406: sub1 -> slot 4).
-                slots = {}
-                for ch, slot in zip(setcenters, getrects):
-                    if ch and ch not in slots:
-                        slots[ch] = slot
                 if slots:
                     e['slots'] = slots
                 table[scen] = e

@@ -1192,13 +1192,11 @@ async function boot() {
     gags['1288'].chans = { main: [1233, 1288, 1288, 1288, 1303] };
     delete gags['1288'].hold;
   }
-  // BreakOffProp gags: the props (807 -> golden toast 2974, 1672 -> rider 1734)
-  // now come straight from the extractor's Split(vtbl+0xc8) scan, so no hand-wired
-  // prop lists here. 1672 still needs its main order patched: the split's
-  // continuation (1686) is queued in the handler's ONGOING branch, which the
-  // linear-sweep extractor visits before the INIT branch, so it can't yet order
-  // [1672, 1686] on its own (awaits execution-ordered extraction).
-  if (gags['1672']) gags['1672'].chans = { main: [1672, 1686] };
+  // BreakOffProp gags: props (807 -> golden toast 2974, 1672 -> rider 1734) come
+  // from the extractor's Split(vtbl+0xc8) scan, and 1672's continuation order
+  // ([3,1672,1686,3]) now comes from the state-machine interpreter — the last
+  // chans boot patch is gone. (1288 remains the one hand-modeled chain: its
+  // global 3-phase morph is outside the interpreter's scope, see gagmap.py.)
   const saver = new Screensaver({
     art, karArt,
     compound: new Compound(comp22000),
