@@ -515,14 +515,20 @@ def interp_handler(h, end, max_ticks=120):
         seen_states.add(state)
     for c in CH.values():                         # drain the remainder
         played[c].extend(queue[c])
+    # NO interior consecutive-dedup: repeated labels inside a queued list are
+    # REAL (e.g. [93,93,93,622,...] = three flight loops of fly-in before the
+    # act — the engine's on-screen lead-in; [...,380,380,...] = the act played
+    # twice). Only the TRAILING run of the final label collapses to one: those
+    # repeats are the state machine re-queuing its hold/exit loop each drain,
+    # which `hold` (loop till offscreen) and flight self-looping already model.
     chains = {}
     for c, seq in played.items():
-        dd = []
-        for L in seq:
-            if not dd or dd[-1] != L:
-                dd.append(L)
-        if dd:
-            chains[c] = _collapse_cycle(dd)
+        if not seq:
+            continue
+        seq = _collapse_cycle(seq)
+        while len(seq) >= 2 and seq[-1] == seq[-2]:
+            seq = seq[:-1]
+        chains[c] = seq
     return chains, props, templates
 
 

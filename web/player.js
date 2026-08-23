@@ -624,17 +624,23 @@ class MultiGag {
       const holdCh = !!(spec.hold && spec.hold[k]);
 
       let chain = raw.slice();
-      while (chain.length && isDisp(chain[0])) chain = chain.slice(1);  // strip leading
+      // KEEP leading flight loops (93/3): they are the engine's FLY-IN — the
+      // toaster cruises on-screen before the act triggers (2736's channels fly
+      // three loops into view, 861 flies in before the bagel pops). Stripping
+      // them (the old flattened-extraction cleanup) made every gag's opening
+      // beat fire at the spawn edge, half off-screen.
       // drop 1-frame "start card" layout markers (e.g. 2458/679) — the formation
       // TEMPLATE (one artch item per channel), not a playable actor.
       chain = chain.filter(l => seqLen(l) > 1);
       // self-contained scenario: no queued sequence, so the scenario label IS the
       // sequence (a real multi-frame one, not a 1-frame card). Plays once.
+      // (An extracted all-flight chain — 879's main escorts its bagel sub — is
+      // NOT self-contained: it really does just fly.)
       if (!chain.length) {
         if (k === 'main' && seqLen(scen) > 1) chain = [scen];
         else return;
       }
-      const formation = isFormation(chain[0]);
+      const formation = isFormation(chain.find(l => !isDisp(l)) ?? chain[0]);
       const slotFollow = useAssembly && k !== 'main' && slots[k] != null ? slots[k] : null;
       if (formation) {
         // formations end mid-screen; their arc would teleport back if looped, so
