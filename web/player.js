@@ -505,10 +505,11 @@ class Actor {
 // sub-player per slot at that position, each playing its own choreography, then
 // dispersing to plain flight. Positions/pairing are approximated from the data
 // (exact per-channel timing lives in the ~13KB glue driver).
+// engine queues these sub-sequences (runStart+1, skips link frames) per glue
 const FORMATIONS = {
-  2458: [2473, 2548, 2611, 2674],   // diamond (4 toasters)
-  1782: [1785, 1851],               // pair formation
-  1928: [1932, 2003],               // pair variant
+  2458: [2474, 2549, 2612, 2675],   // diamond (4 toasters)
+  1782: [1786, 1852],               // pair formation (glue 0x10fc6)
+  1928: [1933, 2004],               // pair variant
 };
 
 class FormationGag {

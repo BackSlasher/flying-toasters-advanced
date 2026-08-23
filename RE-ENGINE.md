@@ -150,3 +150,69 @@ So the live gags render their intended cast; the ones that truly needed separate
 sub-channel toasters were the 1-frame start-cards (2458/1402/2080/679), already
 filtered out. Full 4-channel coordination is only needed for family-A scenarios
 (not in the live pool) → multi-channel GagActor is a nice-to-have, not required.
+
+## Gag choreography — channel model & per-scenario reads (deep dig)
+
+**Channel offsets** (corrected): main channel = `[gag+0xc]`; sub-channels =
+`[gag+0x40]`, `[gag+0x44]`, `[gag+0x48]`. Each phase the glue calls
+`QueueSequence` (chan vtbl+0x7c) with a label, and `CountLoopsOutOfView`
+(vtbl+0xa0) to detect offscreen. Family-A/B glue tail-jumps to 0x412712;
+family-C to 0x415beb.
+
+**Key structural finding:** MOST "gags" are single **main-channel** sequences
+with a follow-on chain — NOT multi-toaster. Only true formations use the
+sub-channels. So the recreation's per-scenario need is usually just a chain,
+occasionally N sub-players.
+
+Confirmed from raw disassembly:
+- **1782 / 1928 pair formations** (glue 0x10fc6): sub1/sub2 get the companion
+  sub-sequences — 1782 → sub1=1786 (seq 1785), sub2=1852 (seq 1851);
+  1928 → sub1=1933 (1932), sub2=2004 (2003). Main disperses to 93. These are
+  genuine 2-toaster formations (start card 1782/1928 shows both formed up).
+- **2406 mother+2 babies** (0x14e90): main plays 2406 — SELF-CONTAINED (babies
+  are items inside seq 2405); subs just disperse (983). Same for 2391.
+- **2272 love-waffles** (0x15751): main-only, alternates 2272 ↔ 2257 (seq 2256)
+  under flag [gag+0xb0], then disperses. NOT multi-toaster — one toaster with
+  waffle props. Companion 2256 was an orphan; it's this chain's other half.
+- **1653** → sub1=792 (queues the toast-relay onto a sub).
+- Simple main-only chains: 329→339, 624→307, 641→324, 861→(loop 861+846),
+  558/603/1021/1097→93.
+
+Still not cleanly resolved (dispatch binary-tree + some scenarios fall to the
+default disperse handler; would need per-branch tracing):
+- **Diamond 2458** exact sub mapping — falls to default in both glue switches;
+  its 4 toasters are reconstructed in the port from the start-card positions +
+  the 4 orphan sub-sequences (2473/2548/2611/2674), which is a faithful-looking
+  approximation, not the verified engine path.
+- **Speeding-toaster / flip (946)** companion and **conga** — not yet located;
+  946<0x4cb sits in an unread family-C sub-branch (0x414d27).
+
+## Complete gag choreography table (tools/gagmap.py -> assets/gags.json)
+
+Built a proper extractor: recursively walks each driver's binary-search
+dispatch (cmp/sub eax,IMM + je/jg) to map scenario->handler, then linear-sweeps
+each handler (bounded by the next handler / tail-jump) pulling every
+QueueSequence(channel,label). Channel = main[+0xc] / sub1[+0x40] / sub2[+0x44]
+/ sub3[+0x48]. Output: assets/gags.json.
+
+Confirmed multi-toaster gags (the ones that need sub-channels):
+- **2458 diamond** (4 ch): main=2473, sub1=2548, sub2=2611, sub3=2674.
+- **946 speeding/flip** (2 ch): sub1=946 (flip toaster), sub2=520->538 (the
+  SPEEDING toaster that passes) — the missing partner.
+- **679 police** (3 ch): main=679, sub1=675 (674 chase art 537), sub2=707.
+- **1402** (3 ch): sub1=1540 (seq1539,122f), sub2=1407 (seq1406,130f), main=1402.
+- **2080** (3 ch): sub1=2084 (seq2083), sub2=2174 (seq2173), main=2080.
+- **792 toast-juggle**: sub1/main=792, sub2=2969 (spawns winged toast that
+  flies off — the "toast continues on its own").
+- **1782/1928 pairs**: sub1/sub2 companions (1782=1786/1852, 1928=1933/2004;
+  the shared handler picks by scenario, so the parser shows 1928's values).
+- **2406 mother**: main=2406 self-contained (babies in-sequence), sub disperses.
+
+Single main-channel chains (no sub-channels): 2272->2257 (love waffles),
+1288 morph, 861->846, 295/312/329->companion->93, 2421 cord (self-contained),
+etc. See gags.json for all.
+
+Known parser limits: shared handlers with a scenario-conditional label add
+(1782 vs 1928) resolve to the fall-through value; sub-channel screen POSITIONS
+aren't in the sequence data (set by the glue's entry-placement lanes) — the
+port approximates them (start-card layout when present, else staggered entry).
