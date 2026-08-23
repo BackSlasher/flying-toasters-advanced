@@ -232,3 +232,16 @@ The web port implements this exactly; each scenario renders via MultiGag from
 gags.json (or, for scenarios whose handler had no queue ops, by playing the
 scenario's own sequence). Scenario-specific SFX from the run loop (not the glue
 handlers): 928→WAV22001 fire, 679/1349→WAV22005 police, 1288→WAV22012 morph.
+
+## BreakOffProp — persisting props (vtbl +0xc8)
+
+Two gags split a prop off the main toaster into an independent sprite that
+keeps flying (the "toast continues on its own" the review asked about). Uses
+CompoundSprite Split/BreakOffProp (channel vtbl +0xc8), NOT QueueSequence, so
+the gagmap extractor missed it. Found by scanning gag handlers for +0xc8:
+- **807** (toast toss): main.BreakOffProp(sub1, 93, 2974) — toast 2974 breaks
+  off onto sub1 and flies on; main continues as plain flight 93.
+- **1672**: main.BreakOffProp(sub1, 1686, 1734) — breaks off a rider (1734,
+  the "titanic pose" toaster); main continues as 1686.
+The web port models these as `props: [label]` extra channels spawned near the
+main toaster (positions approximate; the real split happens mid-flight).

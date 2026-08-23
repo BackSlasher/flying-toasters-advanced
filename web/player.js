@@ -490,7 +490,16 @@ class MultiGag {
       const cx = i < split ? baseX + (i - split) * 160 + 240 : baseX + 80;
       const cy = i < split ? baseY - 80 : baseY + (i - split) * 80;
       p.placeCenter(cx, cy);
+      if (k === 'main') { this.mainX = cx; this.mainY = cy; }
       this.ch.push({ p, chain, ci: 0, dead: false });
+    });
+    // props broken off the main toaster (engine BreakOffProp / vtbl+0xc8) — a
+    // toast/prop that splits off and flies on independently (e.g. 807's toast).
+    (spec.props || []).forEach(pl => {
+      const p = new Player(sv.compound, sv.art);
+      p.enter(pl);
+      p.placeCenter(this.mainX + 30, this.mainY + 20);   // near the toaster
+      this.ch.push({ p, chain: [pl], ci: 0, dead: false });
     });
     (spec.sounds || []).forEach(s => sv.playSound(s));
     if (SCEN_SFX[scen]) sv.playSound(SCEN_SFX[scen]);   // cord/fire/police/morph
@@ -899,6 +908,10 @@ async function boot() {
   // morph: extraction left a trailing 1288 (futuristic) after the devolve 1303,
   // which "clipped into future toaster"; end on morph-back then plain flight
   if (gags['1288']) gags['1288'].chans = { main: [1233, 1288, 1303, 3] };
+  // BreakOffProp gags (engine vtbl+0xc8, missed by the QueueSequence extractor):
+  // 807 splits the toast (2974) off the toaster; 1672 splits off a rider (1734)
+  if (gags['807']) { gags['807'].chans = { main: [807, 93] }; gags['807'].props = [2974]; }
+  if (gags['1672']) { gags['1672'].chans = { main: [1672, 1686] }; gags['1672'].props = [1734]; }
   const saver = new Screensaver({
     art, karArt,
     compound: new Compound(comp22000),
