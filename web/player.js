@@ -249,6 +249,29 @@ const SCEN_SFX = {
 };
 
 
+// ---- engine lane field (shared by gags AND the ambient swarm) ----
+// field init 0x416d0d + ctor 0x417113; occupancy checker A 0x4174dc; gag
+// reservation array B checker 0x41756d. Both arrays carry a claim timestamp
+// with the 0x61a8ms (25s) stale timeout.
+function laneFieldOf(sv) {
+  if (!sv.laneField) {
+    const w80 = Math.ceil(DESIGN_W / 80) + 4, h80 = Math.ceil(DESIGN_H / 80) + 4;
+    const s = (w80 - 5) >> 1;
+    sv.laneField = { split: s, total: h80 + s - 4, claim: [], resv: [] };
+  }
+  return sv.laneField;
+}
+function laneOpen(lf, i, arr) {
+  if (i < 0 || i >= lf.total) return true;         // out of range = free
+  if (lf[arr][i] && now() - lf[arr][i] > 25000) lf[arr][i] = 0;
+  return !lf[arr][i];
+}
+function laneEntryPoint(lf, L) {
+  // 0x173f4: top-edge lanes stagger x by 160 from right+240; right-edge by 80
+  return L < lf.split ? [DESIGN_W + (L - lf.split) * 160 + 240, -80]
+                      : [DESIGN_W + 80, (L - lf.split) * 80];
+}
+
 class ToasterActor {
   constructor(sv, adultSong) {
     this.sv = sv;
@@ -284,10 +307,28 @@ class ToasterActor {
     }
   }
   edgeEntry() {
-    const nTop = Math.ceil(DESIGN_W / 160), nRight = Math.ceil(DESIGN_H / 160);
-    const k = rand(nTop + nRight);
-    if (k < nTop) this.enterAt(k * 160 + rand(160) - 40, -80);
-    else this.enterAt(DESIGN_W + 80, (k - nTop) * 80 + rand(80));
+    // engine ambient lane grant (0x171ad): global 500ms rate limit ([+0x3c]
+    // + 0x1f4 gate), random lane over the WHOLE field, free in BOTH occupancy
+    // (A) and gag reservations (B); claim at launch (0x183c7), release at
+    // death (0x1827c/0x18301). A denied grant = no spawn this tick.
+    const sv = this.sv, lf = laneFieldOf(sv);
+    const t = now();
+    if (t < (sv._laneGrantAt || 0) + 500) { this.spawnFailed = true; return; }
+    const L = rand(lf.total);
+    if (!laneOpen(lf, L, 'claim') || !laneOpen(lf, L, 'resv')) {
+      this.spawnFailed = true; return;
+    }
+    sv._laneGrantAt = t;
+    lf.claim[L] = t;
+    this._lane = L;
+    const [cx, cy] = laneEntryPoint(lf, L);
+    this.enterAt(cx, cy);
+  }
+  _releaseLane() {
+    if (this._lane != null && this.sv.laneField) {
+      this.sv.laneField.claim[this._lane] = 0;
+      this._lane = null;
+    }
   }
   enterAt(cx, cy) { this.p.placeCenter(cx, cy); }
 
@@ -444,6 +485,7 @@ class ToasterActor {
     // that never enters) — replacing the old per-case 120/400 age constants.
     if (this.p.offscreen() && (this.arrived || this.age > CULL_MAX_TICKS)) {
       this.dead = true;
+      this._releaseLane();               // engine releases at death (0x1827c)
       return;
     }
     this.boundary();
@@ -604,16 +646,8 @@ class MultiGag {
     // needs cfg.lanes CONSECUTIVE free lanes (its footprint, offset by
     // cfg.split); if occupied the spawn FAILS silently (engine sentinel 0xfc18)
     // and the saver simply rolls again later — gags never overlap mid-air.
-    const lf = sv.laneField || (sv.laneField = (() => {
-      const w80 = Math.ceil(DESIGN_W / 80) + 4, h80 = Math.ceil(DESIGN_H / 80) + 4;
-      const s = (w80 - 5) >> 1;
-      return { split: s, total: h80 + s - 4, claim: [] };
-    })());
-    const laneFree = i => {
-      if (i < 0 || i >= lf.total) return true;          // out of range = free
-      if (lf.claim[i] && now() - lf.claim[i] > 25000) lf.claim[i] = 0;
-      return !lf.claim[i];
-    };
+    const lf = laneFieldOf(sv);
+    const laneFree = i => laneOpen(lf, i, 'claim');
     // Per-scenario entry band ([gag+0x9c] top lane, [gag+0xa0] band size),
     // extracted as laneTop ('split' = the split threshold, i.e. right-edge
     // lanes only — the police 1349) and laneBandK (band = total - top - K).
@@ -637,21 +671,30 @@ class MultiGag {
     if (!this.noLanes) {
       let laneOk = true;
       for (let b = 0; b < footprint; b++) if (!laneFree(lane - split + b)) laneOk = false;
-      if (!laneOk) {                                    // engine: no spawn now
+      if (!laneOk) {                                    // engine: no spawn now —
+        // and RESERVE the footprint (claim array B, 0x17489) so ambient
+        // toasters keep out and the gag can land here on a later attempt;
+        // reservations clear on a successful spawn (0x17469) or go stale (25s)
+        for (let b = 0; b < footprint; b++) {
+          const li = lane - split + b;
+          if (li >= 0 && li < lf.total) lf.resv[li] = now();
+        }
         this.spawnFailed = true; this.dead = true; this.ch = [];
         return;
       }
       this._lanes = [];
       for (let b = 0; b < footprint; b++) {
         const li = lane - split + b;
-        if (li >= 0 && li < lf.total) { lf.claim[li] = now(); this._lanes.push(li); }
+        if (li >= 0 && li < lf.total) {
+          lf.claim[li] = now();
+          lf.resv[li] = 0;                              // release-B on success
+          this._lanes.push(li);
+        }
       }
     }
     // entry point per lane (0x173f4): top-edge lanes stagger x by 160 from the
     // right base +240; right-edge lanes stagger y by 80 from the top.
-    const laneEntry = L => L < lf.split
-      ? [DESIGN_W + (L - lf.split) * 160 + 240, -80]
-      : [DESIGN_W + 80, (L - lf.split) * 80];
+    const laneEntry = L => laneEntryPoint(lf, L);
     const comp = sv.compound;
     const seqOf = l => comp.seqOf.get(l) || [l];
     const seqLen = l => seqOf(l).length;
@@ -1185,7 +1228,7 @@ class Screensaver {
     this._lastSpawn = 0;
     this.lastCloud = -1e9; this.lastGag = -1e9;
     this.lastGagB = -1e9; this.lastGagC = -1e9;
-    if (this.laneField) this.laneField.claim = [];  // free all entry lanes
+    if (this.laneField) { this.laneField.claim = []; this.laneField.resv = []; }
     this._laneBand = null;
   }
 
@@ -1264,7 +1307,12 @@ class Screensaver {
     const ratio = food > 0 ? toasters / food : 4.0;
     const wantFood = (r === 2 && ratio > 2.0) || (r >= 3 && ratio > 4.0);
     if (wantFood) this.actors.push(new Actor(this, baby ? 'babyfood' : 'food'));
-    else this.actors.push(new ToasterActor(this, !baby));
+    else {
+      // engine: a denied lane grant (rate limit / occupied / gag-reserved)
+      // means no launch this tick — the saver simply tries again later
+      const a = new ToasterActor(this, !baby);
+      if (!a.spawnFailed) this.actors.push(a);
+    }
     // (no per-spawn sound — the engine's WAVs are gag SFX; swarm is music-only)
   }
 
