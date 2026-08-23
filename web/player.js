@@ -741,8 +741,9 @@ class MultiGag {
       let cx, cy;
       let tplPlaced = false;
       if (formation) {
-        // authored absolute coords carry the arc; flight then drifts it out
-        p.ox = offX; p.oy = offY;
+        // authored absolute coords carry the arc (raw 640x480 space; the group
+        // is anchored proportionally after all channels are placed, below)
+        p.ox = 0; p.oy = 0;
         const bc = p.bounds();
         cx = (bc[0] + bc[2]) / 2; cy = (bc[1] + bc[3]) / 2;
       } else if (slotFollow != null && this.mainCh) {
@@ -753,12 +754,9 @@ class MultiGag {
         // engine SetCenterPoint(GetChannelRect(slot)): launch this channel at
         // its authored slot rect of the (never-played) template sequence, then
         // let its own chain fly from there — synchronized group formation.
-        // Templates are authored in the original 640x480 SCREEN space with
-        // entry positions relative to the top-RIGHT corner (all motion is
-        // down-left); anchor the design box there so entry-corner cards
-        // (1402's pair at x 503-760) fly IN instead of materializing centered.
+        // Placed at RAW authored coords; the group anchors proportionally below.
         const r = tplRect(k);
-        cx = (DESIGN_W - KAR_W) + (r[0] + r[2]) / 2 + (tplFrame.dx || 0);
+        cx = (r[0] + r[2]) / 2 + (tplFrame.dx || 0);
         cy = (r[1] + r[3]) / 2 + (tplFrame.dy || 0);
         p.placeCenter(cx, cy);
         tplPlaced = true;
@@ -773,15 +771,31 @@ class MultiGag {
       if (k === 'main') { this.mainCh = rec; rec.drawSlots = mainDrawSlots; }
       this.ch.push(rec);
     });
-    // Arc groups and template groups start at their AUTHORED positions, some of
-    // which sat visibly near the 640x480 top edge in the original (2458's low
-    // arc ~13px in; 2736's wedge slots mid-box) — an authentic pop-in that reads
-    // as materializing mid-screen on the larger canvas. Shift the whole group
-    // rigidly right until every member starts off-canvas: relative choreography
-    // (the formation shape and sweep/fly-in) is preserved, the pop-in becomes a
-    // fly-in — the wedge now ENTERS as three flying toasters.
+    // The port's two documented coordinate adaptations for absolute-coordinate
+    // choreography (arcs + template groups), authored in raw 640x480 screen
+    // space (no scaling/anchoring exists in the engine — on >640px displays the
+    // original just used the coords raw, top-left):
+    // 1. PROPORTIONAL ANCHOR: translate the whole group rigidly so its authored
+    //    bounding-box centre lands at the same screen FRACTION of our canvas.
+    //    Internal geometry and speeds stay exactly authored; edge/staging
+    //    semantics carry over (2458's off-box diamond lands off-canvas by
+    //    itself). Census: 7 of 25 placements are authored off-box staging, 18
+    //    are on-screen starts.
+    // 2. FLY-IN SHIFT: groups whose authored start is genuinely ON-screen (the
+    //    2736 wedge, 2080's pair — an authentic pop-in on a 1996 CRT) shift
+    //    right until every member starts off-canvas, so they enter flying.
     const grpChans = this.ch.filter(c => c.formation || c.tplPlaced);
     if (grpChans.length) {
+      let l = 1e9, t = 1e9, r = -1e9, b = -1e9;
+      for (const c of grpChans) {
+        const bb = c.p.bounds();
+        l = Math.min(l, bb[0]); t = Math.min(t, bb[1]);
+        r = Math.max(r, bb[2]); b = Math.max(b, bb[3]);
+      }
+      const cx0 = (l + r) / 2, cy0 = (t + b) / 2;
+      const adx = Math.round(cx0 / KAR_W * DESIGN_W - cx0);
+      const ady = Math.round(cy0 / KAR_H * DESIGN_H - cy0);
+      for (const c of grpChans) { c.p.ox += adx; c.p.oy += ady; }
       let dx = 0;
       for (const c of grpChans) dx = Math.max(dx, DESIGN_W - c.p.bounds()[0] + 10);
       if (dx > 0 && dx < DESIGN_W) for (const c of grpChans) c.p.ox += dx;
