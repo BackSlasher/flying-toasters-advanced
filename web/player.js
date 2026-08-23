@@ -232,7 +232,21 @@ const FAM_C = [2421, 2458, 2736, 2910, 1402, 1672, 2080, 679, 1349, 879];
 // fire 928 / police 1349 / morph 1288 but MISSES cord 2421 and 679 (their sound is
 // armed via a flag, not a direct call) and adds a spurious 22000 to 1288. Needs
 // the flag-armed path modeled too; until then this correct table stands.
-const SCEN_SFX = { 2421: 22010, 928: 22001, 679: 22005, 1349: 22005, 1288: 22012 };
+const SCEN_SFX = {
+  // 2421 cord: the whoosh flag [+0x84] is armed ONLY in 2421's init (0x128af);
+  // the run loop (0x109da) fires WAV 22010 once at start+delay-250ms (~750ms).
+  2421: { wav: 22010, delayTicks: 8 },
+  // 928 fire / 1349 police: PlayNoise loop=-1 (0x151ff / 0x14c5e) — continuous
+  // until the gag ends (engine StopNoise at teardown, 0x10701/0x10714). Fired
+  // when the transform label enters, per the handler branch that plays them.
+  928: { wav: 22001, at: 928, loop: true },
+  1349: { wav: 22005, at: 675, loop: true },
+  // 1288 morph: warp WAV 22012 fires at morph-out (0x15437, beside queue 1233),
+  // not at spawn — the toaster flies 2-5 loops first.
+  1288: { wav: 22012, at: 1233 },
+  // (679 removed: no PlayNoise site exists for it — its audio is the
+  //  frame-bound bark 683->22011 via soundmap, already fired by _soundAt.)
+};
 
 
 class ToasterActor {
@@ -849,7 +863,10 @@ class MultiGag {
     // start, and place it exactly where the main toaster is then.
     this.pendingProps = (spec.props || []).slice();
     (spec.sounds || []).forEach(s => sv.playSound(s));
-    if (SCEN_SFX[scen]) sv.playSound(SCEN_SFX[scen]);   // cord/fire/police/morph
+    // scenario event sound (see SCEN_SFX): fired from tick() when its delay
+    // elapses or its trigger label enters; looping handles stopped on death
+    this._sfx = SCEN_SFX[scen] ? Object.assign({}, SCEN_SFX[scen]) : null;
+    this._sfxHandle = null;
   }
   _splitProps() {
     // Engine Split (chan vtbl 0xc8 -> the copy helper 0xdc): the broken-off prop
@@ -872,6 +889,19 @@ class MultiGag {
     this.pendingProps = [];
   }
   tick() {
+    // scenario event sound: delay countdown (2421's whoosh) or trigger-label
+    // entry (fire ignition, siren, morph warp) — see SCEN_SFX
+    if (this._sfx) {
+      const fx = this._sfx;
+      let fire = false;
+      if (fx.delayTicks != null) { if (--fx.delayTicks <= 0) fire = true; }
+      else if (fx.at != null && this.ch.some(c => !c.dead && c.p.label === fx.at)) fire = true;
+      if (fire) {
+        const h = this.sv.playSound(fx.wav, 1, !!fx.loop);
+        this._sfxHandle = fx.loop ? h : null;   // only loops get teardown-stopped
+        this._sfx = null;
+      }
+    }
     // Each channel plays its chain independently then loops the last sequence
     // until it drifts offscreen. (An earlier barrier-sync FROZE channels while
     // waiting for slower ones — the "frozen sprites" the review flagged — so we
@@ -942,6 +972,8 @@ class MultiGag {
         for (const li of this._lanes) this.sv.laneField.claim[li] = 0;
         this._lanes = null;
       }
+      // engine StopNoise at teardown: cut looping fire/siren with the gag
+      if (this._sfxHandle) { this._sfxHandle.stop(); this._sfxHandle = null; }
     }
   }
   draw(ctx) { for (const c of this.ch) if (!c.dead) c.p.draw(ctx, c.drawSlots); }
@@ -1237,18 +1269,26 @@ class Screensaver {
   }
 
   // WAV id -> decoded buffer -> play. Gag SFX per RE-ENGINE.md sound map.
-  playSound(id, gain = 1) {
-    if (this.muted || !this.settings.sound || !this.sounds[id]) return;
+  playSound(id, gain = 1, loop = false) {
+    if (this.muted || !this.settings.sound || !this.sounds[id]) return null;
     const ctx = this.audio();
+    // returns a stoppable handle so looping engine sounds (PlayNoise with loop
+    // count -1: fire 22001, siren 22005) can be cut at gag teardown like the
+    // engine's StopNoise sites (0x10701/0x10714)
+    const handle = { s: null, stopped: false,
+      stop() { this.stopped = true; try { if (this.s) this.s.stop(); } catch (e) {} } };
     const fire = buf => {
-      const s = ctx.createBufferSource(); s.buffer = buf;
+      if (handle.stopped) return;
+      const s = ctx.createBufferSource(); s.buffer = buf; s.loop = loop;
       const g = ctx.createGain(); g.gain.value = gain;
       s.connect(g); g.connect(this.masterGain); s.start();
+      handle.s = s;
     };
     const cached = this.sfxCache.get(id);
-    if (cached) return fire(cached);
-    ctx.decodeAudioData(this.sounds[id].slice(0),
+    if (cached) fire(cached);
+    else ctx.decodeAudioData(this.sounds[id].slice(0),
       d => { this.sfxCache.set(id, d); fire(d); });
+    return handle;
   }
 
   // Music runs on a continuous timeline (musicClock, always advancing even when
