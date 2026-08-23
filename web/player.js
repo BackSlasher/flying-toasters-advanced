@@ -369,6 +369,44 @@ class ToasterActor {
     if (!p) return false;
     return p[0] < 0 || p[0] > DESIGN_W || p[1] < 0 || p[1] > DESIGN_H;
   }
+  _travel(label) {
+    // engine GetSequenceTravel (chan vtbl+0x11c) equivalent: one full loop of
+    // the label measured through the SAME playback/alignment path, cached
+    let t = this.travel.get(label);
+    if (t) return t;
+    const p = new Player(this.sv.compound, this.sv.art, this.sv);
+    if (!p.enter(label)) return null;
+    p.placeCenter(0, 0);
+    const a = p.bounds(), ax = (a[0] + a[2]) / 2, ay = (a[1] + a[3]) / 2;
+    for (let i = 0; i < 400 && p.tick() !== 'end'; i++);
+    p.enter(label);                              // include the wrap seam
+    const b = p.bounds();
+    t = [(b[0] + b[2]) / 2 - ax, (b[1] + b[3]) / 2 - ay];
+    this.travel.set(label, t);
+    return t;
+  }
+  edgeEvade(cruise) {
+    // Engine flight-blocked path (0x19444 -> 0x41948a): when the next flight
+    // loop's predicted endpoint (pos + travel/4, fn 0x41987f) crosses the field
+    // edge, cascade the kind's EVASIVE acts (K1 133->172->209, K2 252->231,
+    // K3 1009->1014 — the "one-shots" are edge maneuvers, not random stunts)
+    // and take the first whose own endpoint (pos + travel/2) stays on-screen.
+    // If none qualifies the toaster keeps plain flight and exits naturally.
+    const tv = this._travel(cruise);
+    if (!tv) return null;
+    const [x, y] = this.pos();
+    const qx = x + tv[0] / 4, qy = y + tv[1] / 4;
+    if (qx >= 0 && qx <= DESIGN_W && qy >= 0 && qy <= DESIGN_H) return null;
+    const cascade = this.kind === 1 ? [133, 172, 209]
+                  : this.kind === 2 ? [252, 231] : [1009, 1014];
+    for (const act of cascade) {
+      const at = this._travel(act);
+      if (!at) continue;
+      const ex = x + at[0] / 2, ey = y + at[1] / 2;
+      if (ex >= 0 && ex <= DESIGN_W && ey >= 0 && ey <= DESIGN_H) return act;
+    }
+    return null;
+  }
 
   pickerRoll() {
     // Flight-act PICKERS, fully lifted (kind1 @0x419dd4, kind2 @0x419e34,
@@ -413,7 +451,13 @@ class ToasterActor {
       return;
     }
     const s48 = this.s48;
-    const L = s48 ? this.s44 : this.pickerRoll();
+    let L = s48 ? this.s44 : this.pickerRoll();
+    // engine flight-blocked check (0x19444): when the picker keeps cruising but
+    // the next loop would cross the edge, an evasion act may replace it
+    if (!s48 && (L === 3 || L === 93 || L === 983)) {
+      const ev = this.edgeEvade(L);
+      if (ev != null) L = ev;
+    }
     if (!this.dispatch(L, s48)) {
       const plain = this.kind === 1 ? 3 : this.kind === 2 ? 93 : 983;
       this.go([plain], plain, 0, 1);
