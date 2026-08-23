@@ -322,3 +322,72 @@ vtable 0x50828 — earlier offsets were empirical guesses):
   the group stays locked as it drifts. Formation dissolves (slot-bodies die) with
   main. 2736 → clean 3-wedge, 2406 → mum + 3 babies (slot-4 baby is sub1's 988).
   `sv.assemble=false` reverts to the old suppression (main draws whole group).
+
+## Persistence, Split, cull, extraction (2026-08-23 deep dig)
+
+Replaced several port heuristics with engine ground truth. Load-bearing sites:
+
+### Persistence = the per-sequence loop count `[channel+0x4e]`
+`NextSequence` (0x7c, @0x19c82) zeroes `[ch+0x4e]`, `[ch+0x4c]`, `[ch+0x52]`,
+`[ch+0x4a]` — i.e. play the sequence ONCE. Handlers then WRITE `[ch+0x4e]` to set
+the repeat count for the just-queued sequence:
+- `[ch+0x4e] = CountLoopsOutOfView(ch)` → loop until the sprite drifts out of view
+  (persistent transform: fire 928, formations 2736, power-cord 2421, …).
+- `[ch+0x4e] = <constant N>` → loop N+1 times (morph cruise 1288 sets 2; disperse
+  phases set 2/3/6).
+- `[ch+0x4e] = RandShort(k)+base` → random duration (1288's normal-flight lead-in
+  = RandShort(4)+2 = 2–5 loops).
+`[ch+0x4a]` = "current sequence finished" — the driver polls it each tick before
+advancing. This is the real persist signal; the port's old trailing-disperse
+`loopsLast` proxy is gone. Extracted per channel as gags.json `hold` (gagmap
+classifies the 0x4e store: from-0xa0 = 'offscreen', constant, or absent).
+
+`CountLoopsOutOfView` (0xa0, @0x41a020) is PREDICTIVE, not a death counter — it
+advances a copy of the sequence and returns how many loops until it exits view
+(via the visibility test 0x41fedc), used to seed `[ch+0x4e]`. It appears on
+almost every gag/channel, so its mere presence is NOT a persist discriminator.
+Police 1349's main instead loops via a per-tick re-queue gated on the on-screen
+helper `0x417b57` (gets sprite rect via vtbl+0x1c, field rect via [obj+4] vtbl+0x20,
+intersects them with 0x423005). gagmap signal B: a REAL label queued via 0x80 on a
+channel that polls 0xa0 OR calls 0x417b57 → `hold`.
+
+### NextSequences (0x80, @0x19cbb) is a VARARGS list
+It calls `NextSequence(first)` then loops appending each further label via vtbl+0x138
+until a negative terminator: `NextSequences(this, L0, L1, …, -1)`. The old extractor
+kept only `L0`, truncating whole-list gags (274/380/456/558 → bare `[93]`). gagmap
+now decodes the full list (args = reverse of push order, up to the -1), collapses the
+compiler's loop-unrolling (`…380,380,395…`) via consecutive-dedup, and adopts it for
+a channel only when the channel's flattened content is a SUBSET of it (so 2736's 0x7c
+formation body 324 isn't clobbered by a secondary 0x80 exit phase).
+
+### Split / BreakOffProp (0xc8, @0x41a572)
+`Split(this, subCh, contLabel, propLabel)`: calls the copy helper `0xdc` (@0x41a735)
+which copies this-channel transform fields `[+0x3c]`, `[+0x40]`, `[+0x44]`, `[+0x48]`
+(position) to subCh, then `NextSequence(subCh, prop)` and `NextSequence(this, cont)`.
+So the broken-off prop INHERITS main's origin (not its bounds-center) — the port's
+`_splitProps` copies `ox/oy` so the toast ejects from the slot in the right lane.
+gagmap scans 0xc8 → gags.json `props` (807→2974, 1672→1734), retiring those hand
+patches. cont ordering (1672's [1672,1686]) still needs branch-order extraction.
+
+### Cull = the ±35px box (0x1798f)
+The engine wraps a sprite's position `[+0x44]` in a ±0x23 (35px) box and culls when
+it leaves the screen (edge checks 0x179e7 / 0x17a43 = left / bottom, the toasters'
+travel directions). Port unified to `offscreen(35) && (arrived || age > CULL_MAX)`,
+replacing the ad-hoc 80/120/250/400 age constants (one never-arrived safety net).
+
+### Art decode bug (RLID op-0 row-reference)
+`tools/rlid.py` op-0 was treated as end-of-row regardless of its high nibble. The
+row-table builder (adxpl510 0x431d7b) sub-dispatches op-0 on H: H=1 end-of-row,
+H=0 end-of-sprite, **H=3 = ROW REFERENCE** (next 2 bytes BE = a prior row index to
+copy — vertical dedup for photos/flat areas), H=2/H≥4 no-op. Misreading H=3 desynced
+the stream → blank-scanline corruption in the intro slides (446/454/455) and karaoke
+text banks (22100–23). Fixing it decoded the red per-syllable karaoke glyphs cleanly,
+so the port now draws the AUTHENTIC red reveal glyphs instead of a multiply-tint.
+
+### Extraction limitation (open)
+The extractor LINEAR-sweeps each handler, so init-branch and ongoing-branch queues
+land out of execution order. Fine for most gags; leaves 1672's cont order, 1288's
+phase order (still boot-patched, now grounded), and 295/312/329's `307`-lead + tail
+(currently render the 307 lead only) for a future branch-aware (init-vs-ongoing via
+the `[ebx+0x38]` started flag) extraction pass. SFX table (#6) also open: a single
+PlayNoise (0x422fcf) scan misses the flag-armed cord 2421 / 679.
