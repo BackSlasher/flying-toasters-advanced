@@ -69,6 +69,12 @@ html, body {
   margin: 10px 0 0;
 }
 
+#build {
+  float: right;
+  font-family: monospace;
+  opacity: 0.6;
+}
+
 #topbar {
   position: fixed;
   top: 12px;
