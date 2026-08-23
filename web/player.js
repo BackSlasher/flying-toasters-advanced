@@ -1169,9 +1169,18 @@ async function boot() {
 
   // (1782/1928 share handler 0x10fc6 — the pair formation arcs 1933+2004 now
   //  come straight from extraction, so the earlier hand-patched labels are gone.)
-  // morph: extraction left a trailing 1288 (futuristic) after the devolve 1303,
-  // which "clipped into future toaster"; end on morph-back then plain flight
-  if (gags['1288']) gags['1288'].chans = { main: [1233, 1288, 1303] };
+  // Futuristic morph (1288): the extractor flattens the global 3-phase state
+  // machine (morph-out 1233 -> futuristic cruise 1288 -> morph-back 1303) OUT of
+  // execution order into [1233,1288,3,1288,1303,3,1288] with a spurious hold that
+  // froze it on the morph-back frame. Reproduce the real arc explicitly: morph
+  // out, CRUISE futuristic 3x (the handler sets the futuristic seq's [+0x4e]=2 =
+  // 3 plays before the phase flips), morph back, then resume flight. (The random
+  // 2-5 normal-flight lead-in and the screen-wide phase orchestration that syncs
+  // all morphers aren't modeled — this is the per-toaster morph in isolation.)
+  if (gags['1288']) {
+    gags['1288'].chans = { main: [1233, 1288, 1288, 1288, 1303] };
+    delete gags['1288'].hold;
+  }
   // BreakOffProp gags: the props (807 -> golden toast 2974, 1672 -> rider 1734)
   // now come straight from the extractor's Split(vtbl+0xc8) scan, so no hand-wired
   // prop lists here. 1672 still needs its main order patched: the split's
