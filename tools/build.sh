@@ -8,7 +8,7 @@ DIST="${1:-$ROOT/dist}"
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
-cp "$ROOT/web/index.html" "$ROOT/web/player.js" "$ROOT/web/style.css" "$DIST/"
+cp "$ROOT/web/index.html" "$ROOT/web/player.js" "$ROOT/web/style.css" "$ROOT/web/og-banner.png" "$DIST/"
 cp -r "$ROOT/assets" "$DIST/assets"
 # GitHub Pages runs Jekyll by default, which skips files/dirs it doesn't like;
 # .nojekyll serves the tree verbatim.
