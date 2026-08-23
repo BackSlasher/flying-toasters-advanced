@@ -207,6 +207,11 @@ const FAM_C = [2421, 2458, 2736, 2910, 1402, 1672, 2080, 679, 1349, 879];
 // scenario-specific SFX (RE-ENGINE.md sound map). WAV 22010 is NOT a universal
 // gag whoosh — the enable flag +0x84 is armed only for the power-cord gag 2421
 // (0x128af). Most gags are silent (music only); these are the exceptions.
+// Per-scenario gag SFX (values binary-verified). TODO(#6, open): fold into the
+// extractor. A single PlayNoise (0x422fcf) scan is NOT sufficient — it reproduces
+// fire 928 / police 1349 / morph 1288 but MISSES cord 2421 and 679 (their sound is
+// armed via a flag, not a direct call) and adds a spurious 22000 to 1288. Needs
+// the flag-armed path modeled too; until then this correct table stands.
 const SCEN_SFX = { 2421: 22010, 928: 22001, 679: 22005, 1349: 22005, 1288: 22012 };
 
 
