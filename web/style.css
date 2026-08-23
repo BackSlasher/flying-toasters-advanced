@@ -69,10 +69,25 @@ html, body {
   margin: 10px 0 0;
 }
 
-#build {
+#build-box {
   float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#build {
   font-family: monospace;
   opacity: 0.6;
+}
+
+#gh-link {
+  color: #444;
+  display: inline-flex;
+}
+
+#gh-link:hover {
+  color: #000;
 }
 
 #topbar {
