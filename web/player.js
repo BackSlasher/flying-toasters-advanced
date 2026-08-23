@@ -775,14 +775,21 @@ class Screensaver {
     return (this.audioCtx.currentTime - this.music.startAt) * 1000;
   }
 
-  setDebug(actor) {
-    this.debugActor = actor;
-    if (actor && this.debugSolo) { this.actors = []; this.introRunning = false; }
+  setDebug(actorOrFactory) {
+    if (typeof actorOrFactory === 'function') {
+      this.debugFactory = actorOrFactory;
+      this.debugActor = actorOrFactory();
+    } else {
+      this.debugFactory = null;
+      this.debugActor = actorOrFactory;
+    }
+    if (this.debugActor && this.debugSolo) { this.actors = []; this.introRunning = false; }
   }
 
   tick() {
     if (this.debugActor) {
       this.debugActor.tick();
+      if (this.debugActor.dead && this.debugFactory) this.debugActor = this.debugFactory();
       if (!this.debugSolo) {                      // swarm continues alongside
         for (const a of this.actors) a.tick();
         this.actors = this.actors.filter(a => !a.dead);
@@ -970,62 +977,64 @@ async function boot() {
 }
 
 // ------------------------------------------------------ debug button harness
-// Each entry: [label, chain]. Chain plays looped in isolation for judging.
+// Entry = [name, spec]. spec is either a flight/food CHAIN (array of labels,
+// played via DebugActor) or a GAG {g: scenario} (played via the REAL MultiGag
+// straight from gags.json — so what you review is exactly what the swarm runs).
+// Rebuilt to reflect the authentic RE (family tables, gags.json). Babies last.
 const DEBUG_CATALOG = {
   'Adult flight': [
-    ['cruise 1 (label 3)', [3]],
-    ['cruise 2 (label 93)', [93]],
-    ['coil heat act (18→33→48)', [18, 33, 33, 48]],
-    ['act 586→602→607 (cruise 3)', [586, 602, 602, 607]],
-    ['fly up (133)', [133]], ['go around (172)', [172]],
-    ['slow/lane (209)', [209]],
-    ['change lane (231)', [231]], ['change lane 2 (252)', [252]],
+    ['cruise 1 (3)', [3]], ['cruise 2 (93)', [93]],
+    ['coil-heat act (18→33→48)', [18, 33, 33, 48]],
+    ['act 586→602→607', [586, 602, 602, 607]],
     ['638 act (622→638→643)', [622, 638, 638, 643]],
-    ['slow down? (105)', [105, 122]], ['turn/back-skip (115)', [115, 122]],
-  ],
-  'Transforms (persistent chains)': [
-    // RE-ENGINE.md: these chain to a follow-on that PERSISTS until offscreen.
-    // Loops enter at runStart+1 to skip the link frame (avoids debug flicker).
-    ['bagel-eyes FULL (878→913)', [878, 913, 913, 913]],
-    ['bagel-cruise only (913)', [913]],
-    ['coil glow 945 (=mega 946)', [945]],
-    ['TOAST POP 748 (juggle→pop)', [748]],
-    ['MORPH evolution (1232→1288→1303)', [1232, 1288, 1288, 1303, 3]],
-    ['futuristic cruise (1288)', [1288]],
-    ['morph forward only (1232)', [1232]],
+    ['one-shot 133', [133]], ['one-shot 172', [172]], ['one-shot 209', [209]],
+    ['one-shot 231', [231]], ['one-shot 252', [252]],
+    ['turn-around 105', [105, 122]], ['turn-around 115', [115, 122]],
   ],
   'Food': [
     ['cracker (3039)', [3039]], ['bagel (3024)', [3024]],
     ['waffle (3019)', [3019]], ['golden toast (3002)', [3002]],
     ['brown bread (2997)', [2997]], ['brown bread moving (2979)', [2979]],
     ['static toast (2969)', [2969]], ['static golden (2974)', [2974]],
-    ['jam toast juggle (1371)', [1371]],   // jam arts 330/331 only appear in gags
   ],
   'Sky': [
-    // clouds were all art 463; these 4 labels hit the 4 distinct shapes
     ['cloud A (463)', [3053]], ['cloud B (464)', [3058]],
     ['cloud C (465)', [3063]], ['cloud D (466)', [3068]],
-    ['(baby) moon 3239', [3239]], ['(baby) cow 3244', [3244]],
-    ['(baby) stars 3249', [3249]],
   ],
-  'Gags': [
-    ['power cord 2421', [2421]], ['burning toaster (928)', [928]],
-    ['solo stunt 658', [658]],
-    ['toast goes in (792)', [792]], ['toast juggle cont (807)', [807]],
-    ['diamond 2458', [2458]], ['finale 2910', [2910]],
-    ['donkey hops / leapfrog (2239)', [2239]], ['love waffles (2272)', [2272]],
-    ['hoola hoop (1361)', [1361]], ['juggle 1372', [1372]],
-    ['toast+toaster 1213', [1213]], ['flip-over (946)', [946]],
-    ['police card 679', [679]], ['3-wedge 2736', [2736]],
+  'Gags — family A': [
+    ['pair formation 1782', { g: 1782 }], ['pair formation 1928', { g: 1928 }],
+    ['toast juggle→spawn (792)', { g: 792 }], ['toast toss (807)', { g: 807 }],
+    ['toast relay (749)', { g: 749 }], ['toast+upside-down (861)', { g: 861 }],
+    ['chase 274', { g: 274 }], ['loop-the-loop 295', { g: 295 }],
+    ['dive 312', { g: 312 }], ['climb 329', { g: 329 }],
+    ['barrel-roll train 558', { g: 558 }], ['chase 456', { g: 456 }],
+  ],
+  'Gags — family B': [
+    ['mother + 3 babies (2391)', { g: 2391 }], ['mother + 2 babies (2406)', { g: 2406 }],
+    ['toast+upside-down 1213', { g: 1213 }], ['toast+toaster 1227', { g: 1227 }],
+    ['MORPH / evolution (1288)', { g: 1288 }], ['solo stunt 658', { g: 658 }],
+    ['burning toaster (928)', { g: 928 }], ['hoola hoop (1361)', { g: 1361 }],
+    ['toast juggle 1372', { g: 1372 }], ['leapfrog / donkey hops (2239)', { g: 2239 }],
+    ['bagel+toaster 1387', { g: 1387 }], ['love waffles (2272)', { g: 2272 }],
+    ['pair 2298', { g: 2298 }],
+  ],
+  'Gags — family C': [
+    ['power cord (2421)', { g: 2421 }], ['DIAMOND — 4 toasters (2458)', { g: 2458 }],
+    ['3-wedge (2736)', { g: 2736 }], ['finale — 3 (2910)', { g: 2910 }],
+    ['big formation / conga? (1402)', { g: 1402 }], ['toaster+upside-down 1672', { g: 1672 }],
+    ['pair formation 2080', { g: 2080 }], ['POLICE chase — 3 (679)', { g: 679 }],
+    ['police escort (1349)', { g: 1349 }], ['bagel-eyes — 2 (879)', { g: 879 }],
+  ],
+  'Flight specials (baby launch)': [
+    ['special 1038', [1038]], ['special 1065', [1065]], ['special 1107', [1107, 1065]],
+    ['special 1111', [1111]], ['mom+babies 1138', [1138]], ['special 1154', [1154]],
+    ['special 1173', [1173]], ['special 1192', [1192]],
+    ['flip-over 946 (raw)', [945]], ['toast-pop 748 (raw)', [748]],
   ],
   '(baby) flight': [
     ['plain 983', [983]], ['wander 988', [988]], ['wander 997', [997]],
     ['wander 1003', [1003]], ['ladder 1009', [1009]], ['ladder 1014', [1014]],
     ['swoop 1019→1025', [1019, 1025]],
-    ['special 1038', [1038]], ['special 1065', [1065]], ['special 1107', [1107, 1065]],
-    ['special 1111', [1111]], ['special 1138 (mom+babies)', [1138]],
-    ['special 1154', [1154]], ['special 1173', [1173]], ['special 1192', [1192]],
-    ['mother 2391', [2391]], ['mother 2406', [2406]],
   ],
   '(baby) food': [
     ['duck 3274', [3274]], ['duck wiggle 3279', [3279]], ['bottle 3286', [3286]],
@@ -1081,10 +1090,11 @@ function buildDebug(saver) {
     h.className = 'dbg-group';
     h.textContent = group;
     bar.appendChild(h);
-    for (const [name, chain] of items) {
+    for (const [name, spec] of items) {
       n++;
       const num = n;                             // capture per-iteration
-      const id = chain.join('-');                // stable per-act key
+      const isGag = !Array.isArray(spec);
+      const id = isGag ? `g${spec.g}` : spec.join('-');   // stable per-act key
       const b = document.createElement('button');
       b.dataset.num = num; b.dataset.id = id;
       b.dataset.defname = name; b.dataset.group = group;
@@ -1100,7 +1110,11 @@ function buildDebug(saver) {
       b.onclick = () => {
         saver.debugSolo = document.getElementById('dbg-solo').checked;
         const doLoop = document.getElementById('dbg-loop').checked;
-        saver.setDebug(new DebugActor(saver, chain, doLoop));
+        // gags spawn the REAL MultiGag (auto-respawns for repeat viewing);
+        // flight/food play via DebugActor
+        const factory = isGag ? () => new MultiGag(saver, spec.g)
+                              : () => new DebugActor(saver, spec, doLoop);
+        saver.setDebug(factory);
         bar.querySelectorAll('button[data-id]').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
         showReview(b);
@@ -1123,8 +1137,8 @@ function buildDebug(saver) {
   copyBtn.onclick = () => {
     const out = [];
     for (const [group, items] of Object.entries(DEBUG_CATALOG))
-      for (const [name, chain] of items) {
-        const id = chain.join('-');
+      for (const [name, spec] of items) {
+        const id = Array.isArray(spec) ? spec.join('-') : `g${spec.g}`;
         const rv = reviews[id];
         if (rv && (rv.verdict || rv.name || rv.notes))
           out.push({ act: id, group, default_name: name,
@@ -1137,6 +1151,17 @@ function buildDebug(saver) {
       () => { window.prompt('Copy manually:', json); });
   };
   bar.appendChild(copyBtn);
+
+  const wipeBtn = document.createElement('button');
+  wipeBtn.textContent = '🗑 clear all reviews';
+  wipeBtn.className = 'dbg-clear';
+  wipeBtn.onclick = () => {
+    if (!confirm('Clear all saved reviews?')) return;
+    for (const k of Object.keys(reviews)) delete reviews[k];
+    saveReviews(reviews);
+    bar.querySelectorAll('button[data-id]').forEach(x => { x._render(); });
+  };
+  bar.appendChild(wipeBtn);
   document.body.appendChild(bar);
 
   // ---- review panel (bottom, under the canvas) ----
