@@ -698,6 +698,11 @@ class MultiGag {
       const formation = isFormation(chain.find(l => !isDisp(l)) ?? chain[0]);
       const slotFollow = useAssembly && k !== 'main' && slots[k] != null ? slots[k] : null;
       if (formation) {
+        // formation arcs play at their AUTHORED coordinates — a leading flight
+        // loop would render mid-screen at the arc's start point ("toaster pops
+        // into existence in midair", the 1782 report), so the arc starts the
+        // chain; the fly-in lead only applies to lane-entering channels.
+        while (chain.length > 1 && isDisp(chain[0])) chain = chain.slice(1);
         // formations end mid-screen; their arc would teleport back if looped, so
         // they always exit on plain flight regardless of the queue's disperse.
         const last = chain[chain.length - 1];
@@ -958,21 +963,33 @@ class Karaoke {
     const kx = Math.round((DESIGN_W - KAR_W) / 2);
     const ky = DESIGN_H - 64 - lineTop;
     // Authentic per-syllable reveal (engine ground truth): draw the WHITE line
-    // sprite (artch 1), then overlay each SUNG syllable's own RED glyph art
-    // (artch>1) at its authored rect. The red glyphs decode cleanly now that the
-    // RLID op-0 row-reference decoder bug is fixed — previously they were garbled
-    // (blank scanline gaps), which is why an earlier version faked the wipe with a
-    // multiply-tint. That approximation (and its fringing) is now gone.
+    // sprite (artch 1), then each SUNG syllable's own RED glyph art (artch>1) at
+    // its authored rect. The red glyph's ink sits a few px off the white's inside
+    // its box (authored that way) — in the engine its OPAQUE BLACK background
+    // REPLACES the region, hiding the offset. dropBlackBox makes that background
+    // transparent, so overlaying left the white peeking around the red (the
+    // "doubled text" bug). Reproduce the replace: compose on an offscreen, ERASE
+    // each sung syllable's rect, then draw its red art — box-blit semantics with
+    // a transparent banner (no black boxes over the sky).
     const wl = fr.items.find(i => i.artch === 1);
     if (wl) {
+      if (!this._oc) this._oc = document.createElement('canvas');
+      const oc = this._oc;
+      if (oc.width !== KAR_W || oc.height !== KAR_H) { oc.width = KAR_W; oc.height = KAR_H; }
+      const octx = oc.getContext('2d');
+      octx.clearRect(0, 0, KAR_W, KAR_H);
       const im = this.sv.karArt.get(wl.art);
-      if (im) ctx.drawImage(im, kx + wl.rect[0], ky + wl.rect[1]);
-    }
-    for (const it of fr.items) {
-      if (it.artch > 1 && this.reveal.has(it.artch)) {
-        const im = this.sv.karArt.get(it.art);
-        if (im) ctx.drawImage(im, kx + it.rect[0], ky + it.rect[1]);
+      if (im) octx.drawImage(im, wl.rect[0], wl.rect[1]);
+      for (const it of fr.items) {
+        if (it.artch > 1 && this.reveal.has(it.artch)) {
+          const ri = this.sv.karArt.get(it.art);
+          if (!ri) continue;
+          octx.clearRect(it.rect[0], it.rect[1],
+                         it.rect[2] - it.rect[0], it.rect[3] - it.rect[1]);
+          octx.drawImage(ri, it.rect[0], it.rect[1]);
+        }
       }
+      ctx.drawImage(oc, kx, ky);
     }
     if (this.bagelX != null) {
       const bfr = this.bagel.cur();
@@ -1289,7 +1306,11 @@ async function boot() {
   // 2-5 normal-flight lead-in and the screen-wide phase orchestration that syncs
   // all morphers aren't modeled — this is the per-toaster morph in isolation.)
   if (gags['1288']) {
-    gags['1288'].chans = { main: [1233, 1288, 1288, 1288, 1303] };
+    // hand-modeled morph arc (see gagmap.py): the handler flies normal for
+    // RandShort(4)+2 loops FIRST (so the morph happens mid-screen, not at the
+    // entry edge), then morph-out, cruise futuristic 3x ([0x4e]=2), morph back.
+    // Fixed 4-loop lead-in stands in for the engine's random 3-6.
+    gags['1288'].chans = { main: [3, 3, 3, 3, 1233, 1288, 1288, 1288, 1303] };
     delete gags['1288'].hold;
   }
   // BreakOffProp gags: props (807 -> golden toast 2974, 1672 -> rider 1734) come
