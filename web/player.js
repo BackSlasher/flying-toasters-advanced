@@ -479,7 +479,8 @@ class MultiGag {
     order.forEach((k, i) => {
       let chain = spec.chans[k].slice();
       while (chain.length && chain[0] === 93) chain = chain.slice(1);  // strip init disperse(s)
-      if (k === 'main' && chain[0] !== scen) chain.unshift(scen);       // main plays the gag's own seq first
+      // main plays the gag's own seq first — unless it's already in the chain
+      if (k === 'main' && !chain.includes(scen)) chain.unshift(scen);
       // drop 1-frame "start card" layout markers (e.g. 2458) — positions come
       // from the entry-lane geometry, so the card frame would just flash/freeze
       chain = chain.filter(l => seqLen(l) > 1);
@@ -895,6 +896,9 @@ async function boot() {
 
   // parser limitation: 1782/1928 share a handler; fix 1782's companion labels
   if (gags['1782']) gags['1782'].chans = { main: [1786], sub1: [1786], sub2: [1852] };
+  // morph: extraction left a trailing 1288 (futuristic) after the devolve 1303,
+  // which "clipped into future toaster"; end on morph-back then plain flight
+  if (gags['1288']) gags['1288'].chans = { main: [1233, 1288, 1303, 3] };
   const saver = new Screensaver({
     art, karArt,
     compound: new Compound(comp22000),
@@ -1067,19 +1071,19 @@ const DEBUG_CATALOG = {
   'Gags — family A': [
     ['pair formation 1782', { g: 1782 }], ['pair formation 1928', { g: 1928 }],
     ['toast juggle→spawn (792)', { g: 792 }], ['toast toss (807)', { g: 807 }],
-    ['toast relay (749)', { g: 749 }], ['toast+upside-down (861)', { g: 861 }],
+    ['toast relay (749)', { g: 749 }], ['bagel pop (861)', { g: 861 }],
     ['chase 274', { g: 274 }], ['loop-the-loop 295', { g: 295 }],
     ['dive 312', { g: 312 }], ['climb 329', { g: 329 }],
     ['barrel-roll train 558', { g: 558 }], ['chase 456', { g: 456 }],
   ],
   'Gags — family B': [
-    ['mother + 3 babies (2391)', { g: 2391 }], ['mother + 2 babies (2406)', { g: 2406 }],
-    ['toast+upside-down 1213', { g: 1213 }], ['toast+toaster 1227', { g: 1227 }],
-    ['MORPH / evolution (1288)', { g: 1288 }], ['solo stunt 658', { g: 658 }],
+    ['mother + babies (2391)', { g: 2391 }], ['mother + babies (2406)', { g: 2406 }],
+    ['baby swinging on cracker (1213)', { g: 1213 }], ['baby on waffle (1227)', { g: 1227 }],
+    ['MORPH / evolution (1288)', { g: 1288 }], ['rowing/swimming toaster (658)', { g: 658 }],
     ['burning toaster (928)', { g: 928 }], ['hoola hoop (1361)', { g: 1361 }],
-    ['toast juggle 1372', { g: 1372 }], ['leapfrog / donkey hops (2239)', { g: 2239 }],
-    ['bagel+toaster 1387', { g: 1387 }], ['love waffles (2272)', { g: 2272 }],
-    ['pair 2298', { g: 2298 }],
+    ['toast juggle 1372', { g: 1372 }], ['leapfrog (2239)', { g: 2239 }],
+    ['toaster riding a bagel (1387)', { g: 1387 }], ['love waffles (2272)', { g: 2272 }],
+    ['kissing pair (2298)', { g: 2298 }],
   ],
   'Gags — family C': [
     ['power cord (2421)', { g: 2421 }], ['DIAMOND — 4 toasters (2458)', { g: 2458 }],
