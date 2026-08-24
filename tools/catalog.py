@@ -68,17 +68,20 @@ def esc(s):
 
 
 # ---- squadron section (flight kinds + acts, extracted distributions) ----
+# kinds 1 and 2 share the SAME toaster body (seq 93's arts are a subset of
+# seq 3's) — they differ by flight pattern and act repertoire, not livery
 SQUADRON = [
-    ('Chrome toaster (kind 1)', 3,
-     'Acts per flight loop (RandShort(35) @0x419dd4): wing-loop 33 10/35, '
-     'dive-loop 602 10/35, edge maneuvers 133/172/209 1/35 each. '
+    ('Adult toaster, flight family A (kind 1)', 3,
+     'Flight seq 3. Acts per flight loop (RandShort(35) @0x419dd4): wing-loop '
+     '33 10/35, dive-loop 602 10/35, edge maneuvers 133/172/209 1/35 each. '
      'Edge-blocked flight cascades 133 -> 172 -> 209.'),
-    ('White toaster (kind 2)', 93,
-     'Acts per flight loop (RandShort(30) @0x419e34): act-loop 638 10/30, '
-     'edge maneuvers 231/252 2/30 each. Edge cascade 252 -> 231.'),
+    ('Adult toaster, flight family B (kind 2)', 93,
+     'Flight seq 93 — same body as kind 1, different behavior. Acts per flight '
+     'loop (RandShort(30) @0x419e34): act-loop 638 10/30, edge maneuvers '
+     '231/252 2/30 each. Edge cascade 252 -> 231.'),
     ('Baby toaster (kind 3)', 983,
-     'Specials per flight loop (RandShort(80) @0x419f14): 988 / 1014 / 1009 / '
-     '1019 at 1/80 each. Edge cascade 1009 -> 1014.'),
+     'Flight seq 983. Specials per flight loop (RandShort(80) @0x419f14): '
+     '988 / 1014 / 1009 / 1019 at 1/80 each. Edge cascade 1009 -> 1014.'),
 ]
 
 # food tables parsed straight from player.js so they stay in sync
