@@ -385,25 +385,45 @@ class ToasterActor {
     this.travel.set(label, t);
     return t;
   }
+  _blocker(px, py) {
+    // Engine 0x17049 (field vtbl+0x18, reached via the 0x41987f predictor):
+    // the predicted endpoint's +-40px box (0x1701b inflates by 0x28) is tested
+    // against a REGISTRY of the other flying objects' rects; the intersecting
+    // object is returned. Outside the extended field the test returns CLEAR —
+    // there is NO edge component: this is toaster-to-toaster COLLISION
+    // AVOIDANCE. ("Toasters never react to each other" was wrong.)
+    if (px < -160 || px > DESIGN_W + 160 || py < -160 || py > DESIGN_H + 160)
+      return null;                                   // out of field = clear
+    for (const a of this.sv.actors) {
+      if (a === this || a.dead) continue;
+      const kinds = a.kind;
+      if (!(a instanceof ToasterActor) && kinds !== 'food' && kinds !== 'babyfood'
+          && kinds !== 'gag') continue;              // clouds don't register
+      const check = b =>
+        px + 40 > b[0] && px - 40 < b[2] && py + 40 > b[1] && py - 40 < b[3];
+      if (a.ch) {                                    // gag: each live channel
+        for (const c of a.ch) if (!c.dead && check(c.p.bounds())) return a;
+      } else if (check(a.p.bounds())) return a;
+    }
+    return null;
+  }
   edgeEvade(cruise) {
     // Engine flight-blocked path (0x19444 -> 0x41948a): when the next flight
-    // loop's predicted endpoint (pos + travel/4, fn 0x41987f) crosses the field
-    // edge, cascade the kind's EVASIVE acts (K1 133->172->209, K2 252->231,
-    // K3 1009->1014 — the "one-shots" are edge maneuvers, not random stunts)
-    // and take the first whose own endpoint (pos + travel/2) stays on-screen.
-    // If none qualifies the toaster keeps plain flight and exits naturally.
+    // loop's predicted endpoint (pos + travel/4) would COLLIDE with another
+    // flying object, cascade the kind's dodge acts (K1 133->172->209,
+    // K2 252->231, K3 1009->1014 — the "one-shots" are dodge maneuvers) and
+    // take the first whose own endpoint (pos + travel/2) is unblocked. If none
+    // qualifies the toaster keeps plain flight.
     const tv = this._travel(cruise);
     if (!tv) return null;
     const [x, y] = this.pos();
-    const qx = x + tv[0] / 4, qy = y + tv[1] / 4;
-    if (qx >= 0 && qx <= DESIGN_W && qy >= 0 && qy <= DESIGN_H) return null;
+    if (!this._blocker(x + tv[0] / 4, y + tv[1] / 4)) return null;
     const cascade = this.kind === 1 ? [133, 172, 209]
                   : this.kind === 2 ? [252, 231] : [1009, 1014];
     for (const act of cascade) {
       const at = this._travel(act);
       if (!at) continue;
-      const ex = x + at[0] / 2, ey = y + at[1] / 2;
-      if (ex >= 0 && ex <= DESIGN_W && ey >= 0 && ey <= DESIGN_H) return act;
+      if (!this._blocker(x + at[0] / 2, y + at[1] / 2)) return act;
     }
     return null;
   }
