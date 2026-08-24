@@ -63,6 +63,49 @@ def first_real(chain):
     return chain[0] if chain else None
 
 
+def last_real(chain):
+    for l in reversed(chain):
+        if l not in (3, 93, 983):
+            return l
+    return None
+
+
+def mid_frame(label):
+    """Middle frame of the label's sequence — the pose in full swing."""
+    q = seq_of.get(label, [label])
+    return q[len(q) // 2]
+
+
+def max_items_frame(label):
+    """The sequence's most-populated frame (formed wedge, full card)."""
+    best, n = label, -1
+    for fn in seq_of.get(label, [label]):
+        fr = frames.get(str(fn))
+        if fr and len(fr['items']) > n:
+            best, n = fn, len(fr['items'])
+    return best
+
+
+def highlight(e, scen):
+    """Pick the gag's most representative frame: the held transform mid-pose
+    (burning, bagel-eyes, police...), else the formed template frame (the
+    wedge AS a wedge), else the last real sequence's mid-pose."""
+    chans = e.get('chans', {})
+    hold = e.get('hold') or {}
+    for ch in ('main', 'sub1', 'sub2', 'sub3'):
+        if ch in hold and ch in chans:
+            lab = last_real(chans[ch])
+            if lab:
+                return mid_frame(lab)
+    if e.get('template'):
+        return max_items_frame(e['template'])
+    lab = last_real(chans.get('main', [])) or \
+        next((last_real(v) for v in chans.values() if last_real(v)), None)
+    if lab:
+        return mid_frame(lab)
+    return mid_frame(int(scen))
+
+
 def esc(s):
     return str(s).replace('&', '&amp;').replace('<', '&lt;')
 
@@ -97,10 +140,8 @@ for scen in sorted(gags, key=int):
     e = gags[scen]
     cfg = e.get('cfg', {})
     chans = e.get('chans', {})
-    label = e.get('template') or first_real(chans.get('main', [])) or \
-        first_real(sum(chans.values(), [])) or int(scen)
-    t = thumb(label) or thumb(int(scen))
-    img = f'<img src="{t}" alt="" loading="lazy">' if t else ''
+    hf = highlight(e, scen)
+    img = f'<canvas class="fr" data-frame="{hf}" width="90" height="70"></canvas>'
     name = names.get(scen, '')
     chain_txt = '<br>'.join(
         f'<b>{esc(k)}</b>: {" &rarr; ".join(str(x) for x in v)}'
@@ -128,8 +169,8 @@ for scen in sorted(gags, key=int):
 
 sq_rows = []
 for title, flight, desc in SQUADRON:
-    t = thumb(flight)
-    img = f'<img src="{t}" alt="" loading="lazy">' if t else ''
+    img = (f'<canvas class="fr" data-frame="{mid_frame(flight)}" '
+           f'width="90" height="70"></canvas>')
     sq_rows.append(f'<tr><td class="th">{img}</td><td><b>{esc(title)}</b>'
                    f'<br>flight seq {flight}</td><td colspan=3>{desc}</td></tr>')
 for title, labels in FOODS:
@@ -149,6 +190,7 @@ html = f'''<!doctype html>
   table {{ border-collapse: collapse; width: 100%; }}
   td {{ border-top: 1px solid #26262e; padding: 6px 8px; vertical-align: top; }}
   td.th {{ width: 96px; text-align:center; }} td.th img {{ max-width:90px; max-height:70px; }}
+  canvas.fr {{ image-rendering: auto; }}
   .nm {{ color:#8a8; }} .ch {{ font-family: ui-monospace, monospace; font-size:12px; color:#aac; }}
   .xx {{ font-size:12px; color:#ca8; }} .cf {{ font-size:12px; color:#888; white-space:nowrap; }}
   p.note {{ color:#777; font-size:12px; }}
@@ -164,6 +206,42 @@ data (assets/gags.json). Chains are sequence labels in engine execution order;
 <tr><td class="th"></td><td>scenario</td><td>channel chains</td><td>behavior</td><td>config</td></tr>
 {''.join(rows)}
 </table>
+<script>
+// Composite each thumbnail from its HIGHLIGHT frame (all items of the frame,
+// scaled to fit) using the same compound + banks data the player uses.
+(async () => {{
+  const [comp, banks] = await Promise.all([
+    fetch('{PREFIX}/compound_22000.json').then(r => r.json()),
+    fetch('{PREFIX}/sprites/banks.json').then(r => r.json()),
+  ]);
+  const artURL = {{}};
+  for (const [bank, meta] of Object.entries(banks)) {{
+    if (+bank >= 22100) continue;               // karaoke banks shadow art ids
+    for (const fid of Object.keys(meta.frames))
+      artURL[+fid] = `{PREFIX}/sprites/${{bank}}/f${{String(fid).padStart(3, '0')}}.png`;
+  }}
+  const imgCache = {{}};
+  const load = src => imgCache[src] || (imgCache[src] = new Promise(res => {{
+    const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null);
+    im.src = src;
+  }}));
+  for (const cv of document.querySelectorAll('canvas.fr')) {{
+    const fr = comp.frames[cv.dataset.frame];
+    if (!fr) continue;
+    const [l, t, r, b] = fr.rect, w = r - l, h = b - t;
+    const s = Math.min(cv.width / w, cv.height / h, 1.4);
+    const ox = (cv.width - w * s) / 2, oy = (cv.height - h * s) / 2;
+    const g = cv.getContext('2d');
+    for (const it of fr.items) {{
+      const src = artURL[it.art - 1];             // art ids are 1-based
+      if (!src) continue;
+      const im = await load(src);
+      if (im) g.drawImage(im, ox + (it.rect[0] - l) * s, oy + (it.rect[1] - t) * s,
+                          im.width * s, im.height * s);
+    }}
+  }}
+}})();
+</script>
 '''
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 open(OUT, 'w').write(html)

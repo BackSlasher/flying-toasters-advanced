@@ -272,3 +272,12 @@ html, body {
   font: 16px monospace;
   background: #000;
 }
+
+#catalog-link {
+  color: #567;
+  font-size: 11px;
+}
+
+#catalog-link:hover {
+  color: #89a;
+}
