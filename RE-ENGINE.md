@@ -551,3 +551,12 @@ completes — 807's toast detaches at the pop's end, 1672's rider at its seq end
   <- a stack-local rect computed in the module init; the final numeric
   computation sits behind a disassembly desync. Placement QA-verified; the
   port's banner anchor stands as a documented adaptation.
+
+### Last pedantic crumbs (closed)
+- Kind-1/2 launches (0x1884c/0x1883c): plain launch helper 0x41a3ea(gag,
+  flight-label, lanePoint) + launch timestamp — matches the port exactly.
+- [gag+0x58/0x5c/0x60] = SLOT assignments for the three follower helpers
+  ([+0x4c/0x50/0x54]): the run loop (0x10a52) pins each follower to
+  GetChannelRect(main, slot) per tick (slot 0 = main's raw position; 2421
+  uses slots 7/4/1). Handlers never queue sequences onto followers, so they
+  draw nothing — position anchors (positional audio), ignorable for the port.
