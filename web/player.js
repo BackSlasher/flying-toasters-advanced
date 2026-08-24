@@ -242,8 +242,11 @@ const SCEN_SFX = {
   928: { wav: 22001, at: 928, loop: true },
   1349: { wav: 22005, at: 675, loop: true },
   // 1288 morph: warp WAV 22012 fires at morph-out (0x15437, beside queue 1233),
-  // not at spawn — the toaster flies 2-5 loops first.
-  1288: { wav: 22012, at: 1233 },
+  // not at spawn — the toaster flies 2-5 loops first. The 22000 theme sting
+  // LOOPS while the futuristic cruise runs (PlayNoise loop=-1 at each cruise
+  // queue, 0x154b0/0x155fe/0x1573b) and stops at morph-back (0x15653).
+  1288: [{ wav: 22012, at: 1233 },
+         { wav: 22000, at: 1288, loop: true, stopAt: 1303 }],
   // (679 removed: no PlayNoise site exists for it — its audio is the
   //  frame-bound bark 683->22011 via soundmap, already fired by _soundAt.)
 };
@@ -419,15 +422,27 @@ class ToasterActor {
     const tv = this._travel(cruise);
     if (!tv) return null;
     const [x, y] = this.pos();
-    if (!this._blocker(x + tv[0] / 4, y + tv[1] / 4)) return null;
+    const blk = this._blocker(x + tv[0] / 4, y + tv[1] / 4);
+    if (!blk) return null;
+    // Engine 0x419f5e classifies the blocker's relative DIRECTION (a sector
+    // table at 0x43a074+) and the cascade branches on it — dodge by where the
+    // other toaster is. Approximated here: among unblocked dodge acts, take
+    // the one whose endpoint gets FURTHEST from the blocker.
+    const blkCh = blk.ch && blk.ch.find(c => !c.dead);
+    const bb = blk.p ? blk.p.bounds() : blkCh ? blkCh.p.bounds() : null;
+    const bx = bb ? (bb[0] + bb[2]) / 2 : x, by = bb ? (bb[1] + bb[3]) / 2 : y;
     const cascade = this.kind === 1 ? [133, 172, 209]
                   : this.kind === 2 ? [252, 231] : [1009, 1014];
+    let best = null, bestD = -1;
     for (const act of cascade) {
       const at = this._travel(act);
       if (!at) continue;
-      if (!this._blocker(x + at[0] / 2, y + at[1] / 2)) return act;
+      const ex = x + at[0] / 2, ey = y + at[1] / 2;
+      if (this._blocker(ex, ey)) continue;
+      const d = Math.hypot(ex - bx, ey - by);
+      if (d > bestD) { bestD = d; best = act; }
     }
-    return null;
+    return best;
   }
 
   pickerRoll() {
@@ -986,10 +1001,11 @@ class MultiGag {
     // start, and place it exactly where the main toaster is then.
     this.pendingProps = (spec.props || []).slice();
     (spec.sounds || []).forEach(s => sv.playSound(s));
-    // scenario event sound (see SCEN_SFX): fired from tick() when its delay
-    // elapses or its trigger label enters; looping handles stopped on death
-    this._sfx = SCEN_SFX[scen] ? Object.assign({}, SCEN_SFX[scen]) : null;
-    this._sfxHandle = null;
+    // scenario event sounds (see SCEN_SFX): each spec fires from tick() when
+    // its delay elapses or its trigger label enters; loops stop at their stopAt
+    // label (1288's cruise sting) or at gag teardown
+    this._sfx = (SCEN_SFX[scen] ? [].concat(SCEN_SFX[scen]) : [])
+      .map(s => Object.assign({}, s));
   }
   _splitProps() {
     // Engine Split (chan vtbl 0xc8 -> the copy helper 0xdc): the broken-off prop
@@ -1012,17 +1028,21 @@ class MultiGag {
     this.pendingProps = [];
   }
   tick() {
-    // scenario event sound: delay countdown (2421's whoosh) or trigger-label
-    // entry (fire ignition, siren, morph warp) — see SCEN_SFX
-    if (this._sfx) {
-      const fx = this._sfx;
-      let fire = false;
-      if (fx.delayTicks != null) { if (--fx.delayTicks <= 0) fire = true; }
-      else if (fx.at != null && this.ch.some(c => !c.dead && c.p.label === fx.at)) fire = true;
-      if (fire) {
-        const h = this.sv.playSound(fx.wav, 1, !!fx.loop);
-        this._sfxHandle = fx.loop ? h : null;   // only loops get teardown-stopped
-        this._sfx = null;
+    // scenario event sounds: delay countdown (2421's whoosh) or trigger-label
+    // entry (fire ignition, siren, morph warp, cruise sting) — see SCEN_SFX
+    for (const fx of this._sfx) {
+      if (!fx.done) {
+        let fire = false;
+        if (fx.delayTicks != null) { if (--fx.delayTicks <= 0) fire = true; }
+        else if (fx.at != null && this.ch.some(c => !c.dead && c.p.label === fx.at)) fire = true;
+        if (fire) {
+          fx.done = true;
+          const h = this.sv.playSound(fx.wav, 1, !!fx.loop);
+          if (fx.loop) fx.handle = h;           // only loops get stopped later
+        }
+      } else if (fx.handle && fx.stopAt != null &&
+                 this.ch.some(c => !c.dead && c.p.label === fx.stopAt)) {
+        fx.handle.stop(); fx.handle = null;     // engine StopNoise at the label
       }
     }
     // Each channel plays its chain independently then loops the last sequence
@@ -1095,8 +1115,8 @@ class MultiGag {
         for (const li of this._lanes) this.sv.laneField.claim[li] = 0;
         this._lanes = null;
       }
-      // engine StopNoise at teardown: cut looping fire/siren with the gag
-      if (this._sfxHandle) { this._sfxHandle.stop(); this._sfxHandle = null; }
+      // engine StopNoise at teardown: cut any looping sounds with the gag
+      for (const fx of this._sfx) if (fx.handle) { fx.handle.stop(); fx.handle = null; }
     }
   }
   draw(ctx) { for (const c of this.ch) if (!c.dead) c.p.draw(ctx, c.drawSlots); }
