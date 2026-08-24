@@ -128,20 +128,34 @@
       JSON.stringify(c861));
   }
 
-  // ---- 8. lane accounting: claim on spawn, release by death -----------
+  // ---- 8. lane accounting (audit-corrected semantics) ------------------
+  // Plain toasters only CHECK lanes (0x41a3ea claims nothing); food claims
+  // (0x4183c7) and releases at death (0x1827c/0x18301).
   {
     const lf = laneFieldOf(s);
     lf.claim = []; lf.resv = [];
+    s.actors.length = 0;
     s._laneGrantAt = 0;
     const a = new ToasterActor(s, true);
-    const claimed = a._lane != null && !!lf.claim[a._lane];
-    // force death
-    a.arrived = true;
-    a.p.placeCenter(-500, -500);
-    for (let i = 0; i < 20 && !a.dead; i++) a.tick();
-    const released = a._lane == null && lf.claim.filter(v => v).length === 0;
-    t('toaster claims a lane at launch and releases at death',
-      claimed && released, `claimed=${claimed} released=${released}`);
+    const plainNoClaim = !a.spawnFailed && a._lane == null &&
+      lf.claim.filter(v => v).length === 0;
+    a.dead = true;
+    s._laneGrantAt = 0;
+    const f = new Actor(s, 'food');
+    const foodClaimed = !f.spawnFailed && f._lane != null && !!lf.claim[f._lane];
+    f.die();
+    const foodReleased = f._lane == null && lf.claim.filter(v => v).length === 0;
+    t('plain toasters check-only; food claims and releases at death',
+      plainNoClaim && foodClaimed && foodReleased,
+      `plainNoClaim=${plainNoClaim} foodClaimed=${foodClaimed} foodReleased=${foodReleased}`);
+  }
+
+  // ---- 8b. family tables include the pickers' default-case gags --------
+  {
+    const ok = FAM_A.includes(380) && FAM_B.includes(2349) && FAM_C.includes(946)
+      && FAM_A.length === 13 && FAM_B.length === 14 && FAM_C.length === 11;
+    t('family tables carry the RandShort(13/14/11) default entries (380/2349/946)',
+      ok, `A=${FAM_A.length} B=${FAM_B.length} C=${FAM_C.length}`);
   }
 
   // ---- 9. gag reservations: failed spawn reserves, success clears -----

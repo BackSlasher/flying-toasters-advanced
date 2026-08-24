@@ -221,9 +221,12 @@ const MOON = 3239, COW = 3244, STARS = 3249;
 // into these jump tables). Top level (0x10c24): RandShort(3) picks a family:
 // 0 -> C (>=15s gate), 1 -> B (>=6s gate), 2 -> A (always); gated families
 // fall back toward A. Every scenario's choreography comes from gags.json.
-const FAM_A = [1782, 1928, 792, 807, 749, 861, 274, 295, 312, 329, 558, 456];
-const FAM_B = [2391, 2406, 1213, 1227, 1288, 658, 928, 1361, 1372, 2239, 1387, 2272, 2298];
-const FAM_C = [2421, 2458, 2736, 2910, 1402, 1672, 2080, 679, 1349, 879];
+// Family pickers (0x410cd2/0x410d85/0x410e51): RandShort(13/14/11) with a
+// jump table PLUS a `ja` default case — the default entries (380 / 2349 / 946)
+// were missing from these tables, silently excluding three gags. (Audit fix.)
+const FAM_A = [1782, 1928, 792, 807, 749, 861, 274, 295, 312, 329, 558, 456, 380];
+const FAM_B = [2391, 2406, 1213, 1227, 1288, 658, 928, 1361, 1372, 2239, 1387, 2272, 2298, 2349];
+const FAM_C = [2421, 2458, 2736, 2910, 1402, 1672, 2080, 679, 1349, 879, 946];
 // scenario-specific SFX (RE-ENGINE.md sound map). WAV 22010 is NOT a universal
 // gag whoosh — the enable flag +0x84 is armed only for the power-cord gag 2421
 // (0x128af). Most gags are silent (music only); these are the exceptions.
@@ -274,6 +277,28 @@ function laneEntryPoint(lf, L) {
   return L < lf.split ? [DESIGN_W + (L - lf.split) * 160 + 240, -80]
                       : [DESIGN_W + 80, (L - lf.split) * 80];
 }
+function laneBlocked(sv, self, px, py) {
+  // Engine 0x17049 (via 0x41987f / the grant probes): the point's +-40px box
+  // (0x1701b) must fit inside screen+-160 (so the point itself within +-120)
+  // and not intersect any OTHER registered flying object's rect; returns the
+  // LAST intersecting object (the registry scan runs to the end). This is
+  // toaster-to-toaster collision avoidance.
+  if (px < -120 || px > DESIGN_W + 120 || py < -120 || py > DESIGN_H + 120)
+    return null;                                   // box leaves the field = clear
+  let hit = null;
+  for (const a of sv.actors) {
+    if (a === self || a.dead) continue;
+    const k = a.kind;
+    if (!(a instanceof ToasterActor) && k !== 'food' && k !== 'babyfood'
+        && k !== 'gag') continue;                  // clouds don't register
+    const check = b =>
+      px + 40 > b[0] && px - 40 < b[2] && py + 40 > b[1] && py - 40 < b[3];
+    if (a.ch) {
+      for (const c of a.ch) if (!c.dead && check(c.p.bounds())) hit = a;
+    } else if (check(a.p.bounds())) hit = a;
+  }
+  return hit;
+}
 
 class ToasterActor {
   constructor(sv, adultSong) {
@@ -301,33 +326,56 @@ class ToasterActor {
         const r = rand(24);
         if (r < 8) L = [1038, 1107, 1111, 2391, 1138, 1154, 1173, 1192][r];
       }
-      // engine: the universal launch (0x186d9) grants ONE lane entry point via
-      // the ambient picker and places EVERY kind there — the baby specials
-      // included (0x41a276 SetCenterPoints them at the lane point). The old
-      // hand-crafted right/bottom entries for 1107/1111 were inventions.
+      // Engine launch: the universal launcher (0x186d9) grants a lane entry,
+      // then the special launcher 0x41a276 places there, CLAIMS the lane
+      // (0x41a3dc, stored [+0x60], released in the destructors), and — per
+      // label — RE-PLACES some specials (audit correction: these overrides
+      // are real engine behavior, not inventions):
+      //   1107 (0x41a31e): queue 1065 FIRST (replaces 1107), s44=1107; then
+      //        re-place at (right+40, top+200+RandShort(h-200))
+      //   1111 (0x41a37f): re-place at (w/2-150+RandShort(300), bottom+40)
+      //   2391 (0x41a2f0): nudge (+20, -8)
       if (L === 983) { this.go([983], 983, 0, 1); this.edgeEntry(); }
-      else if (L === 1107) { this.go([1107, 1065], 1107, 1, 0); this.edgeEntry(); }
-      else if (L === 1111) { this.go([1111], 1111, 1, 0); this.edgeEntry(); }
-      else { this.go([L], L, 1, 0); this.edgeEntry(); }
+      else if (L === 1107) {
+        this.go([1065], 1107, 1, 0); this.edgeEntry(true);
+        if (!this.spawnFailed)
+          this.enterAt(DESIGN_W + 40, 200 + rand(Math.max(1, DESIGN_H - 200)));
+      } else if (L === 1111) {
+        this.go([1111], 1111, 1, 0); this.edgeEntry(true);
+        if (!this.spawnFailed)
+          this.enterAt(DESIGN_W / 2 - 150 + rand(300), DESIGN_H + 40);
+      } else {
+        this.go([L], L, 1, 0); this.edgeEntry(true);
+        if (L === 2391 && !this.spawnFailed) {
+          const p = this.pos(); this.enterAt(p[0] + 20, p[1] - 8);
+        }
+      }
     }
   }
-  edgeEntry() {
-    // engine ambient lane grant (0x171ad): global 500ms rate limit ([+0x3c]
-    // + 0x1f4 gate), random lane over the WHOLE field, free in BOTH occupancy
-    // (A) and gag reservations (B); claim at launch (0x183c7), release at
-    // death (0x1827c/0x18301). A denied grant = no spawn this tick.
+  edgeEntry(claim) {
+    // Engine ambient lane grant (0x171ad): global 500ms rate limit ([+0x3c]
+    // + 0x1f4 gate), then up to FOUR attempts (cmp edi,4) each rolling a
+    // random lane over the whole field, requiring free in BOTH occupancy (A)
+    // and gag reservations (B) PLUS collision probes (field vtbl+0x30) at the
+    // entry point and at (x-160, y+80). Plain toasters only CHECK — the plain
+    // launcher 0x41a3ea claims nothing; only food (0x4183c7) and the
+    // baby-special launcher (0x41a3dc) claim, releasing at death. (Audit fix:
+    // claiming for every toaster saturated the field and throttled spawns.)
     const sv = this.sv, lf = laneFieldOf(sv);
     const t = now();
     if (t < (sv._laneGrantAt || 0) + 500) { this.spawnFailed = true; return; }
-    const L = rand(lf.total);
-    if (!laneOpen(lf, L, 'claim') || !laneOpen(lf, L, 'resv')) {
-      this.spawnFailed = true; return;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const L = rand(lf.total);
+      if (!laneOpen(lf, L, 'claim') || !laneOpen(lf, L, 'resv')) continue;
+      const [cx, cy] = laneEntryPoint(lf, L);
+      if (laneBlocked(sv, this, cx, cy) ||
+          laneBlocked(sv, this, cx - 160, cy + 80)) continue;
+      sv._laneGrantAt = t;
+      if (claim) { lf.claim[L] = t; this._lane = L; }
+      this.enterAt(cx, cy);
+      return;
     }
-    sv._laneGrantAt = t;
-    lf.claim[L] = t;
-    this._lane = L;
-    const [cx, cy] = laneEntryPoint(lf, L);
-    this.enterAt(cx, cy);
+    this.spawnFailed = true;
   }
   _releaseLane() {
     if (this._lane != null && this.sv.laneField) {
@@ -390,28 +438,7 @@ class ToasterActor {
     this.travel.set(label, t);
     return t;
   }
-  _blocker(px, py) {
-    // Engine 0x17049 (field vtbl+0x18, reached via the 0x41987f predictor):
-    // the predicted endpoint's +-40px box (0x1701b inflates by 0x28) is tested
-    // against a REGISTRY of the other flying objects' rects; the intersecting
-    // object is returned. Outside the extended field the test returns CLEAR —
-    // there is NO edge component: this is toaster-to-toaster COLLISION
-    // AVOIDANCE. ("Toasters never react to each other" was wrong.)
-    if (px < -160 || px > DESIGN_W + 160 || py < -160 || py > DESIGN_H + 160)
-      return null;                                   // out of field = clear
-    for (const a of this.sv.actors) {
-      if (a === this || a.dead) continue;
-      const kinds = a.kind;
-      if (!(a instanceof ToasterActor) && kinds !== 'food' && kinds !== 'babyfood'
-          && kinds !== 'gag') continue;              // clouds don't register
-      const check = b =>
-        px + 40 > b[0] && px - 40 < b[2] && py + 40 > b[1] && py - 40 < b[3];
-      if (a.ch) {                                    // gag: each live channel
-        for (const c of a.ch) if (!c.dead && check(c.p.bounds())) return a;
-      } else if (check(a.p.bounds())) return a;
-    }
-    return null;
-  }
+  _blocker(px, py) { return laneBlocked(this.sv, this, px, py); }
   edgeEvade(cruise) {
     // Engine flight-blocked path (0x19444 -> 0x41948a): when the next flight
     // loop's predicted endpoint (pos + travel/4) would COLLIDE with another
@@ -422,7 +449,14 @@ class ToasterActor {
     const tv = this._travel(cruise);
     if (!tv) return null;
     const [x, y] = this.pos();
-    const blk = this._blocker(x + tv[0] / 4, y + tv[1] / 4);
+    // Predictor distances (0x41987f, audit fix): /4 applies ONLY to label 3
+    // (kind-1 cruise); every other label — including cruises 93/983 and all
+    // dodge acts — tests pos + travel/2 AND, if clear, pos + full travel.
+    const probe = (lab, t2) => lab === 3
+      ? this._blocker(x + t2[0] / 4, y + t2[1] / 4)
+      : (this._blocker(x + t2[0] / 2, y + t2[1] / 2) ||
+         this._blocker(x + t2[0], y + t2[1]));
+    const blk = probe(cruise, tv);
     if (!blk) return null;
     // Engine 0x419f5e classifies the blocker's relative DIRECTION (a sector
     // table at 0x43a074+) and the cascade branches on it — dodge by where the
@@ -437,8 +471,8 @@ class ToasterActor {
     for (const act of cascade) {
       const at = this._travel(act);
       if (!at) continue;
+      if (probe(act, at)) continue;          // half + full clearance, per engine
       const ex = x + at[0] / 2, ey = y + at[1] / 2;
-      if (this._blocker(ex, ey)) continue;
       const d = Math.hypot(ex - bx, ey - by);
       if (d > bestD) { bestD = d; best = act; }
     }
@@ -493,7 +527,12 @@ class ToasterActor {
     // the next loop would cross the edge, an evasion act may replace it
     if (!s48 && (L === 3 || L === 93 || L === 983)) {
       const ev = this.edgeEvade(L);
-      if (ev != null) L = ev;
+      if (ev != null) {
+        // engine evade blocks (0x4194f4/0x419521...) queue the dodge ONCE
+        // with s48=1 — not through the act dispatch's multi-play entry
+        if (ev === 1009 || ev === 1014) { this.go([ev], ev, 1, 1); return; }
+        L = ev;
+      }
     }
     if (!this.dispatch(L, s48)) {
       const plain = this.kind === 1 ? 3 : this.kind === 2 ? 93 : 983;
@@ -587,7 +626,7 @@ class ToasterActor {
     // that never enters) — replacing the old per-case 120/400 age constants.
     if (this.p.offscreen() && (this.arrived || this.age > CULL_MAX_TICKS)) {
       this.dead = true;
-      this._releaseLane();               // engine releases at death (0x1827c)
+      this._releaseLane();     // specials release at death (0x18559/0x18661)
       if (this._is2391) this.sv._active2391 = false;  // 2391 singleton latch
       return;
     }
@@ -681,7 +720,7 @@ class Actor {
   die() {
     this.dead = true;
     if (this.hasMoon) this.sv.moonActive = false;
-    this._releaseLane();                 // engine releases at death (0x1827c)
+    this._releaseLane();     // food releases at death (0x1827c/0x18301)
   }
   draw(ctx) { this.p.draw(ctx); }
 }
@@ -773,15 +812,19 @@ class MultiGag {
     // Per-scenario entry band ([gag+0x9c] top lane, [gag+0xa0] band size),
     // extracted as laneTop ('split' = the split threshold, i.e. right-edge
     // lanes only — the police 1349) and laneBandK (band = total - top - K).
-    // The gag object is a SINGLETON, so a scenario without config REUSES the
-    // previous gag's band (engine stale-state; reproduced via sv._laneBand).
+    // Audit fix: the config fn's PROLOGUE (0x415bf1) resets the defaults on
+    // EVERY spawn — top = split threshold, band = total - top - 4 — before the
+    // per-scenario handler optionally overrides. (There is no stale-band
+    // reuse; that was a port invention.) NB a handler that overrides only the
+    // top keeps the PROLOGUE-computed band (the engine's 0xa0 wasn't
+    // recomputed), which the ordering below reproduces.
     const c = spec.cfg || {};
-    if (c.laneTop !== undefined || c.laneBandK !== undefined)
-      sv._laneBand = { top: c.laneTop, bandK: c.laneBandK };
-    const bandCfg = sv._laneBand || {};
-    let laneTop = bandCfg.top === 'split' ? lf.split : (bandCfg.top || 0);
-    let laneBand = bandCfg.bandK != null ? lf.total - laneTop - bandCfg.bandK
-                                         : lf.total - laneTop;
+    let laneTop = lf.split;                              // prologue defaults
+    let laneBand = lf.total - lf.split - 4;
+    if (c.laneTop !== undefined)
+      laneTop = c.laneTop === 'split' ? lf.split : c.laneTop;
+    if (c.laneBandK != null)
+      laneBand = lf.total - laneTop - c.laneBandK;
     // the 0x1641e clamp
     if (laneTop > lf.total - 1) laneTop = lf.total - 1;
     if (laneTop + laneBand > lf.total) laneBand = lf.total - laneTop;
@@ -837,13 +880,8 @@ class MultiGag {
       return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
     };
     const isFormation = l => seqLen(l) >= 40 && disp(l) >= 250;
-    // Formation arcs and templates are authored in the original 640x480 SCREEN
-    // space with entry semantics relative to the top-RIGHT corner (all motion is
-    // down-left; arcs like 2473 start off the box's top-right, cards like 1402's
-    // pair sit at the right edge). Anchor the design box at the canvas top-right
-    // so they FLY IN from the corner instead of materializing mid-screen
-    // (centered anchoring caused the 1402/1782 "appeared in midair" reports).
-    const offX = DESIGN_W - KAR_W, offY = 0;
+    // (Formation/template groups are placed at RAW authored 640x480 coords and
+    // then anchored by the proportional-anchor + fly-in-shift block below.)
     // Placement TEMPLATE (engine ground truth): the handler queues the formed
     // multi-body sequence just long enough for GetChannelRect(slot) to read its
     // authored slot rects, SetCenterPoints each channel there, then REPLACES the
@@ -1356,7 +1394,6 @@ class Screensaver {
     this.lastCloud = -1e9; this.lastGag = -1e9;
     this.lastGagB = -1e9; this.lastGagC = -1e9;
     if (this.laneField) { this.laneField.claim = []; this.laneField.resv = []; }
-    this._laneBand = null;
     this._active2391 = false;
   }
 

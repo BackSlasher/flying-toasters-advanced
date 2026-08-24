@@ -312,7 +312,18 @@ def _run_tick(h, end, st, log):
             continue
         if m == 'ret':
             break
-        if m == 'mov':
+        if m == 'mov' and '+ 0x4e],' in o and o.startswith('word ptr'):
+            # fixed per-sequence loop count [ch+0x4e] = K (audit fix: 295/329
+            # queue their fly-in flight with 0x4e=4/3 -> 5/4 plays; the
+            # interpreter previously dropped these). Immediate stores only —
+            # register stores are the CountLoopsOutOfView 'offscreen' holds,
+            # which the flattened extractor already turns into `hold`.
+            src = o.split('],')[1].strip()
+            if src.startswith('0x') or src.lstrip('-').isdigit():
+                k = imm(src) if src.startswith('0x') else int(src)
+                if k is not None and 0 < k < 32:
+                    log.append(('loopn', None, k))
+        elif m == 'mov':
             dst, _, src = o.partition(', ')
             if dst in ('eax', 'ax'):
                 if src.startswith('0x') or src.lstrip('-').isdigit():
@@ -498,6 +509,7 @@ def interp_handler(h, end, max_ticks=120):
             continue                              # wait for the drain
         log = []
         queued = _run_tick(h, end, st, log)
+        last_seq_ch = None
         for ev in log:
             if ev[0] == 'seq':
                 ch, labels = ev[1], ev[2]
@@ -505,6 +517,12 @@ def interp_handler(h, end, max_ticks=120):
                     templates.setdefault(ch, queue[ch][0])
                 queue[ch] = list(labels)          # REPLACE
                 active.add(ch)
+                last_seq_ch = ch
+            elif ev[0] == 'loopn' and last_seq_ch and queue[last_seq_ch]:
+                # [ch+0x4e] = K right after the queue: the just-queued NEXT
+                # sequence plays K+1 times (295 flies in 5 loops, 329 four)
+                head = queue[last_seq_ch][0]
+                queue[last_seq_ch] = [head] * ev[2] + queue[last_seq_ch]
             elif ev[0] == 'prop' and ev[2] not in props:
                 props.append(ev[2])
         state = (tuple(sorted(st['flags'].items())),
