@@ -7,6 +7,17 @@ assets/sprites/banks.json (label -> thumbnail sprite), web/player.js (the
 debug-menu display names, parsed so they stay in sync).
 
 Usage: catalog.py OUTPUT_HTML [ASSETS_PREFIX]
+
+FUTURE IMPROVEMENTS (agreed 2026-08-24):
+ - better highlight frames: some picks are not the gag's most indicative pose
+   (the hold/template heuristic misses gags whose signature moment is mid-chain;
+   consider a hand-curated per-scenario frame override map, or animated thumbs
+   that play the highlight sequence on hover)
+ - descriptive names + a one-line description per gag (the debug-menu names are
+   terse working labels; write proper prose per scenario)
+ - per-gag deep link into the repo for the curious: point each row at the
+   scenario's ground truth (its handler RVA in RE-ENGINE.md / the gags.json
+   entry / the gagmap extraction), e.g. a GitHub link to the exact lines
 """
 import json
 import os

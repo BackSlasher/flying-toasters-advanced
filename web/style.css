@@ -69,8 +69,17 @@ html, body {
   margin: 10px 0 0;
 }
 
+#panel .meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin: 8px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid #a8a49c;
+}
+
 #build-box {
-  float: right;
   display: inline-flex;
   align-items: center;
   gap: 6px;
