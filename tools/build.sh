@@ -14,6 +14,9 @@ cp -r "$ROOT/assets" "$DIST/assets"
 # the web/ source keeps the literal __BUILD__ token (= running unbuilt)
 HASH="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 sed -i "s/__BUILD__/$HASH/" "$DIST/index.html"
+# reference page of every squadron member + gag, generated from the extracted
+# choreography data (serves at /catalog.html; not linked from the UI)
+python3 "$ROOT/tools/catalog.py" "$DIST/catalog.html"
 # GitHub Pages runs Jekyll by default, which skips files/dirs it doesn't like;
 # .nojekyll serves the tree verbatim.
 touch "$DIST/.nojekyll"
