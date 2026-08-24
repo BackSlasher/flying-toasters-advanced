@@ -22,3 +22,6 @@ Babies
 
 Config  
 ![The settings panel](docs/ft3.png)  
+
+## License
+The code is [AGPL-3.0](LICENSE). The extracted artwork, choreography data, music, and sounds remain the property of the After Dark rightsholders and are included for preservation only — see [NOTICE](NOTICE).
