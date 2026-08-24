@@ -507,3 +507,27 @@ completes — 807's toast detaches at the pop's end, 1672's rider at its seq end
 - 1288 stays hand-modeled (global 3-phase counter); its 2-5 loop random
   lead-in IS reproduced (leadIn mechanism, RandShort(4)+2).
 - SCEN_SFX table hand-written (flag-armed PlayNoise path unextracted, #6).
+
+## Final tail sweep (2026-08-24, second pass)
+
+- **Collision avoidance, not edge avoidance**: the flight-blocked predictor
+  (0x41987f -> field vtbl+0x20 -> +0x1c -> 0x17049) inflates the predicted
+  endpoint by +-40px (0x1701b) and tests it against a registry of the OTHER
+  flying objects' rects, returning the intersecting object; out of the extended
+  field returns CLEAR. The dodge cascades (K1 133->172->209, K2 252->231, K3
+  1009->1014) are toaster-to-toaster avoidance — the earlier "no emergent
+  reactivity" conclusion was wrong. 0x419f5e computes the relative-position
+  mask used to order the cascade.
+- **Universal launch (0x186d9)**: ALL kinds get their entry from the ambient
+  lane picker 0x4171ad; the baby specials (1038/1107/1111/1134/1154/1173/1192/
+  2391) are SetCenterPoint'd at the lane entry by 0x41a276 (which also claims
+  the lane at 0x1a3dc — the previously unidentified claim site). The port's
+  hand-crafted 1107/1111 entries were inventions; removed.
+- **Karaoke**: line labels are SINGLE-frame sequences — no line animation
+  exists (the 264-269 y-jitter is per-line authoring, already compensated).
+  Bagel placement: x = sung word's rect midpoint, y = karaoke area height - 31
+  (0x1b430/0x1b46c in the .ad); the area-rect setter was not located, current
+  banner placement stands.
+- **1288 global phase (0x432ff8/ffc)**: referenced ONLY inside the 1288 handler
+  — no screen-wide morph synchronization exists; the solo morph model is
+  correct and final.

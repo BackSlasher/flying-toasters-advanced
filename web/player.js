@@ -298,12 +298,14 @@ class ToasterActor {
         const r = rand(24);
         if (r < 8) L = [1038, 1107, 1111, 2391, 1138, 1154, 1173, 1192][r];
       }
+      // engine: the universal launch (0x186d9) grants ONE lane entry point via
+      // the ambient picker and places EVERY kind there — the baby specials
+      // included (0x41a276 SetCenterPoints them at the lane point). The old
+      // hand-crafted right/bottom entries for 1107/1111 were inventions.
       if (L === 983) { this.go([983], 983, 0, 1); this.edgeEntry(); }
-      else {
-        if (L === 1107) { this.go([1107, 1065], 1107, 1, 0); this.enterAt(DESIGN_W + 40, 200 + rand(DESIGN_H - 200)); }
-        else if (L === 1111) { this.go([1111], 1111, 1, 0); this.enterAt(DESIGN_W / 2 - 150 + rand(300), DESIGN_H + 40); }
-        else { this.go([L], L, 1, 0); this.edgeEntry(); }
-      }
+      else if (L === 1107) { this.go([1107, 1065], 1107, 1, 0); this.edgeEntry(); }
+      else if (L === 1111) { this.go([1111], 1111, 1, 0); this.edgeEntry(); }
+      else { this.go([L], L, 1, 0); this.edgeEntry(); }
     }
   }
   edgeEntry() {
