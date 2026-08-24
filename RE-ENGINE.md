@@ -531,3 +531,23 @@ completes — 807's toast detaches at the pop's end, 1672's rider at its seq end
 - **1288 global phase (0x432ff8/ffc)**: referenced ONLY inside the 1288 handler
   — no screen-wide morph synchronization exists; the solo morph model is
   correct and final.
+
+## Crumb sweep results (2026-08-24, third pass)
+
+- 1288 sting: WAV 22000 loops through the futuristic cruise (PlayNoise loop=-1
+  at 0x154b0/0x155fe/0x1573b), StopNoise at morph-back (0x15653). Ported via
+  SCEN_SFX lists with per-spec stopAt labels.
+- Dodge direction: 0x419f5e classifies the blocker's relative direction via a
+  sector/vector table at 0x43a074; port approximates by picking the unblocked
+  dodge act whose endpoint lands furthest from the blocker.
+- Food launch: the generic lane-granted launcher (0x18355 -> picker 0x4171ad,
+  object's sequence via its vtbl+0x2c, claim 0x183c7) covers food too; ported.
+- Special teardown (0x1853c/0x18647): releases the lane held at [obj+0x60]
+  at death (matches the port) and clears a GLOBAL latch 0x43a072 for scenario
+  2391 — 2391 is a singleton; concurrent picks substitute 1038 (0x18ed0).
+  Ported (sv._active2391).
+- Karaoke area rect: traced karobj[+0x20] <- area-viewport GetRect (vtable
+  0x43b8bc, +0x20 = 0x1c7f1 copying [obj+0x4a]) <- Init (vtbl+0x88 = 0x1a738)
+  <- a stack-local rect computed in the module init; the final numeric
+  computation sits behind a disassembly desync. Placement QA-verified; the
+  port's banner anchor stands as a documented adaptation.
