@@ -526,6 +526,13 @@ class ToasterActor {
     return true;
   }
   dispatchK3(L, s48) {
+    // 2391 is a SINGLETON (global latch 0x43a072): while one is alive, picks
+    // of 2391 substitute 1038 (0x18ed0 gate); latch set at 0x18efe, cleared in
+    // the special's destructor (0x1856a/0x18672).
+    if (L === 2391) {
+      if (this.sv._active2391) L = 1038;
+      else { this.sv._active2391 = true; this._is2391 = true; }
+    }
     const LOCKED = { 1038: 1038, 1107: 1107, 1138: 1138, 1154: 1154, 1173: 1173, 1192: 1192, 2391: 2391 };
     if (LOCKED[L]) { this.go([L], L, 1, 0); return true; }
     if (L === 1111) { this.go([983], 983, 1, 0); return true; }
@@ -581,6 +588,7 @@ class ToasterActor {
     if (this.p.offscreen() && (this.arrived || this.age > CULL_MAX_TICKS)) {
       this.dead = true;
       this._releaseLane();               // engine releases at death (0x1827c)
+      if (this._is2391) this.sv._active2391 = false;  // 2391 singleton latch
       return;
     }
     this.boundary();
@@ -604,6 +612,9 @@ class Actor {
         this.loop = pick(kind === 'food' ? FOOD_ROLLS : BABYFOOD_ROLLS);
         this.p.enter(this.loop);
         this.enterFromEdge();
+        // food launches through the SAME generic lane-granted launcher as the
+        // toasters (0x18355: lane picker 0x4171ad -> SetCenterPoint -> claim
+        // 0x183c7); a denied grant means no spawn this tick
         break;
       }
       case 'cloud': case 'babysky': {
@@ -624,12 +635,27 @@ class Actor {
       }
     }
   }
-  // RE-NOTES entry placement: lanes along top (160px) and right (80px) edges
+  // Food entry = the generic lane-granted launch (0x18355 -> picker 0x4171ad,
+  // claim 0x183c7, release at death): same protocol as the toasters.
   enterFromEdge() {
-    const nTop = Math.ceil(DESIGN_W / 160), nRight = Math.ceil(DESIGN_H / 160);
-    const k = rand(nTop + nRight);
-    if (k < nTop) this.p.placeCenter(k * 160 + rand(160) - 40, -80);
-    else this.p.placeCenter(DESIGN_W + 80, (k - nTop) * 80 + rand(80));
+    const sv = this.sv, lf = laneFieldOf(sv);
+    const t = now();
+    if (t < (sv._laneGrantAt || 0) + 500) { this.spawnFailed = true; return; }
+    const L = rand(lf.total);
+    if (!laneOpen(lf, L, 'claim') || !laneOpen(lf, L, 'resv')) {
+      this.spawnFailed = true; return;
+    }
+    sv._laneGrantAt = t;
+    lf.claim[L] = t;
+    this._lane = L;
+    const [cx, cy] = laneEntryPoint(lf, L);
+    this.p.placeCenter(cx, cy);
+  }
+  _releaseLane() {
+    if (this._lane != null && this.sv.laneField) {
+      this.sv.laneField.claim[this._lane] = 0;
+      this._lane = null;
+    }
   }
   enterCloud() {
     const sy = Math.floor(DESIGN_H / 100), sx = Math.floor(DESIGN_W / 100);
@@ -655,6 +681,7 @@ class Actor {
   die() {
     this.dead = true;
     if (this.hasMoon) this.sv.moonActive = false;
+    this._releaseLane();                 // engine releases at death (0x1827c)
   }
   draw(ctx) { this.p.draw(ctx); }
 }
@@ -1330,6 +1357,7 @@ class Screensaver {
     this.lastGagB = -1e9; this.lastGagC = -1e9;
     if (this.laneField) { this.laneField.claim = []; this.laneField.resv = []; }
     this._laneBand = null;
+    this._active2391 = false;
   }
 
   maxObjects() {
@@ -1406,8 +1434,10 @@ class Screensaver {
     const food = this.actors.filter(a => a.kind === 'food' || a.kind === 'babyfood').length;
     const ratio = food > 0 ? toasters / food : 4.0;
     const wantFood = (r === 2 && ratio > 2.0) || (r >= 3 && ratio > 4.0);
-    if (wantFood) this.actors.push(new Actor(this, baby ? 'babyfood' : 'food'));
-    else {
+    if (wantFood) {
+      const f = new Actor(this, baby ? 'babyfood' : 'food');
+      if (!f.spawnFailed) this.actors.push(f);
+    } else {
       // engine: a denied lane grant (rate limit / occupied / gag-reserved)
       // means no launch this tick — the saver simply tries again later
       const a = new ToasterActor(this, !baby);
