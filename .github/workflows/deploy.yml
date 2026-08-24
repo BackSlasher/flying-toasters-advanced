@@ -22,6 +22,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Run behavioral invariant suite
+        run: |
+          python3 -m http.server 8437 &
+          google-chrome --headless=new --no-sandbox --disable-gpu \
+            --user-data-dir=/tmp/chrome-ci \
+            --remote-debugging-port=9223 about:blank &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9223/json >/dev/null && break
+            sleep 1
+          done
+          python3 tests/run.py http://localhost:8437/web/index.html
       - name: Build static site
         run: bash tools/build.sh
       - uses: actions/configure-pages@v5
